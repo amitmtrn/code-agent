@@ -1,0 +1,14 @@
+services:
+  agent:
+    build: .
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-ollama}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-llama3}
+    network_mode: host # Easier to connect to local Ollama
+    tty: true
+    stdin_open: true
