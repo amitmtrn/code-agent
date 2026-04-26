@@ -6,9 +6,9 @@ To use local models with Ollama, follow these steps.
 
 Download and install Ollama from [ollama.com](https://ollama.com).
 
-## 2. Pull a Model
+## 2. Model Availability
 
-Before using the agent, you need to have a model pulled locally:
+The agent will automatically attempt to pull the required model (e.g., `llama3`) if it is not found locally. However, you can also pull it manually:
 
 ```bash
 ollama pull llama3
