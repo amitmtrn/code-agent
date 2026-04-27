@@ -12,3 +12,13 @@ services:
     network_mode: host # Easier to connect to local Ollama
     tty: true
     stdin_open: true
+
+  test:
+    build:
+      context: .
+      target: builder
+    volumes:
+      - .:/app
+    environment:
+      - DEFAULT_PROVIDER=ollama
+    entrypoint: ["npm", "test"]

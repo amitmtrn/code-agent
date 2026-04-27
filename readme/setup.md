@@ -34,6 +34,19 @@ npm run build
 node dist/index.js "Your prompt here"
 ```
 
+## Verification
+
+You can verify that the agent and its tools are working correctly by running the integrated tests:
+
+```bash
+docker compose run --rm test
+```
+
+This runs a suite of automated tests that verify:
+- File system tools (`read_file`, `write_file`, `list_files`)
+- The tool registry and argument parsing
+- The autonomous agent loop using a mock provider
+
 ## Providers
 
 The agent supports two providers:
