@@ -42,6 +42,8 @@ export class OllamaProvider implements Provider {
       messages: options.messages.map(msg => ({
         role: msg.role,
         content: msg.content,
+        thinking: msg.reasoning,
+        reasoning_content: msg.reasoning,
         tool_call_id: msg.tool_call_id,
         name: msg.name,
         tool_calls: msg.tool_calls?.map(tc => ({
@@ -62,14 +64,15 @@ export class OllamaProvider implements Provider {
       })) as any,
     });
 
-    const message = response.message;
+    const message = response.message as any;
     
     return {
       message: {
         role: message.role as any,
         content: message.content,
+        reasoning: message.thinking || message.reasoning_content,
       },
-      toolCalls: message.tool_calls?.map((tc, index) => ({
+      toolCalls: message.tool_calls?.map((tc: any, index: number) => ({
         id: `call_${index}_${Date.now()}`, // Ollama doesn't always provide IDs
         type: 'function',
         function: {

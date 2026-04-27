@@ -1,6 +1,7 @@
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  reasoning?: string;
   tool_call_id?: string;
   name?: string;
   tool_calls?: ToolCall[];
