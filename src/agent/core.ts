@@ -33,6 +33,10 @@ export class Agent {
       };
       this.messages.push(assistantMessage);
 
+      if (message.reasoning) {
+        console.log(chalk.gray(`\nReasoning: ${message.reasoning}`));
+      }
+
       if (message.content) {
         console.log(chalk.green('\nAssistant:'), message.content);
       }

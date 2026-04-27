@@ -15,6 +15,7 @@ The `code-agent` is designed with a provider-agnostic core that interacts with m
 ### Key Components
 
 - **Providers**: Interfaces for Ollama and Replicate.
+- **Reasoning Support**: Automatically extracts and displays the model's internal thought process (e.g., from DeepSeek R1).
 - **Agent Core**: Manages conversation history and the thinking/acting loop.
 - **Tool Registry**: Centralized system for defining and executing tools.
 - **Tools**:

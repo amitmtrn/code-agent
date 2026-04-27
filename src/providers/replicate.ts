@@ -37,7 +37,15 @@ export class ReplicateProvider implements Provider {
     const output: any = await this.client.run(options.model as any, { input });
 
     // Handle output which might be an array of strings (streamed) or a single string
-    const content = Array.isArray(output) ? output.join('') : output;
+    let content = Array.isArray(output) ? output.join('') : output;
+
+    // Extract reasoning if present (e.g. wrapped in <thought> or <think> tags)
+    let reasoning: string | undefined;
+    const thoughtMatch = content.match(/<(thought|think)>([\s\S]*?)<\/\1>/);
+    if (thoughtMatch) {
+      reasoning = thoughtMatch[2].trim();
+      content = content.replace(/<(thought|think)>([\s\S]*?)<\/\1>/, '').trim();
+    }
 
     // Check for tool calls in the output (simple regex for this clone)
     const toolCalls = this.parseToolCalls(content);
@@ -46,6 +54,7 @@ export class ReplicateProvider implements Provider {
       message: {
         role: 'assistant',
         content: content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim(),
+        reasoning,
       },
       toolCalls,
     };
@@ -55,14 +64,19 @@ export class ReplicateProvider implements Provider {
     return messages
       .filter(m => m.role !== 'system')
       .map(m => {
+        let displayContent = m.content;
+        if (m.reasoning) {
+          displayContent = `<thought>\n${m.reasoning}\n</thought>\n${displayContent}`;
+        }
+
         if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
           const calls = m.tool_calls.map(tc => `<tool_call>${JSON.stringify({ name: tc.function.name, arguments: JSON.parse(tc.function.arguments) })}</tool_call>`).join('\n');
-          return `${m.role}: ${m.content}${m.content ? '\n' : ''}${calls}`;
+          return `${m.role}: ${displayContent}${displayContent ? '\n' : ''}${calls}`;
         }
         if (m.role === 'tool') {
-          return `tool result (${m.name}): ${m.content}`;
+          return `tool result (${m.name}): ${displayContent}`;
         }
-        return `${m.role}: ${m.content}`;
+        return `${m.role}: ${displayContent}`;
       })
       .join('\n');
   }
