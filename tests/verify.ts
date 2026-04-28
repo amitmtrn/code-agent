@@ -1,9 +1,9 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { readFileTool, writeFileTool, listFilesTool } from '../tools/fs';
-import { registry, ToolRegistry, Tool } from '../tools/registry';
-import { Agent } from '../agent/core';
-import { Provider, ChatOptions, ChatResponse } from '../providers/types';
+import { readFileTool, writeFileTool, listFilesTool } from '../src/tools/fs';
+import { registry, ToolRegistry, Tool } from '../src/tools/registry';
+import { Agent } from '../src/agent/core';
+import { Provider, ChatOptions, ChatResponse } from '../src/providers/types';
 
 async function testTools() {
   console.log('--- Testing Tools ---');

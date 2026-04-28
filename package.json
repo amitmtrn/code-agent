@@ -10,6 +10,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "test": "ts-node tests/verify.ts",
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
