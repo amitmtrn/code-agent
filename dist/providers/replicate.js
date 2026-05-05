@@ -33,6 +33,7 @@ class ReplicateProvider {
         }
         const output = await this.client.run(options.model, { input });
         // Handle output which might be an array of strings (streamed) or a single string
+<<<<<<< Updated upstream
         let content = Array.isArray(output) ? output.join('') : output;
         // Extract reasoning if present (e.g. wrapped in <thought> or <think> tags)
         let reasoning;
@@ -41,13 +42,19 @@ class ReplicateProvider {
             reasoning = thoughtMatch[2].trim();
             content = content.replace(/<(thought|think)>([\s\S]*?)<\/\1>/, '').trim();
         }
+=======
+        const content = Array.isArray(output) ? output.join('') : output;
+>>>>>>> Stashed changes
         // Check for tool calls in the output (simple regex for this clone)
         const toolCalls = this.parseToolCalls(content);
         return {
             message: {
                 role: 'assistant',
                 content: content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim(),
+<<<<<<< Updated upstream
                 reasoning,
+=======
+>>>>>>> Stashed changes
             },
             toolCalls,
         };
@@ -56,6 +63,7 @@ class ReplicateProvider {
         return messages
             .filter(m => m.role !== 'system')
             .map(m => {
+<<<<<<< Updated upstream
             let displayContent = m.content;
             if (m.reasoning) {
                 displayContent = `<thought>\n${m.reasoning}\n</thought>\n${displayContent}`;
@@ -68,6 +76,16 @@ class ReplicateProvider {
                 return `tool result (${m.name}): ${displayContent}`;
             }
             return `${m.role}: ${displayContent}`;
+=======
+            if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+                const calls = m.tool_calls.map(tc => `<tool_call>${JSON.stringify({ name: tc.function.name, arguments: JSON.parse(tc.function.arguments) })}</tool_call>`).join('\n');
+                return `${m.role}: ${m.content}${m.content ? '\n' : ''}${calls}`;
+            }
+            if (m.role === 'tool') {
+                return `tool result (${m.name}): ${m.content}`;
+            }
+            return `${m.role}: ${m.content}`;
+>>>>>>> Stashed changes
         })
             .join('\n');
     }
