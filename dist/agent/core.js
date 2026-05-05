@@ -29,12 +29,9 @@ class Agent {
                 tool_calls: toolCalls,
             };
             this.messages.push(assistantMessage);
-<<<<<<< Updated upstream
             if (message.reasoning) {
                 console.log(chalk_1.default.gray(`\nReasoning: ${message.reasoning}`));
             }
-=======
->>>>>>> Stashed changes
             if (message.content) {
                 console.log(chalk_1.default.green('\nAssistant:'), message.content);
             }

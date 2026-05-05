@@ -1,15 +1,11 @@
 "use strict";
-<<<<<<< Updated upstream
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
-=======
->>>>>>> Stashed changes
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OllamaProvider = void 0;
 const ollama_1 = require("ollama");
 const config_1 = require("../config");
-<<<<<<< Updated upstream
 const chalk_1 = __importDefault(require("chalk"));
 class OllamaProvider {
     constructor() {
@@ -38,23 +34,13 @@ class OllamaProvider {
     }
     async chat(options) {
         await this.ensureModelExists(options.model);
-=======
-class OllamaProvider {
-    constructor() {
-        this.client = new ollama_1.Ollama({ host: config_1.config.OLLAMA_BASE_URL });
-    }
-    async chat(options) {
->>>>>>> Stashed changes
         const response = await this.client.chat({
             model: options.model,
             messages: options.messages.map(msg => ({
                 role: msg.role,
                 content: msg.content,
-<<<<<<< Updated upstream
                 thinking: msg.reasoning,
                 reasoning_content: msg.reasoning,
-=======
->>>>>>> Stashed changes
                 tool_call_id: msg.tool_call_id,
                 name: msg.name,
                 tool_calls: msg.tool_calls?.map(tc => ({
@@ -79,10 +65,7 @@ class OllamaProvider {
             message: {
                 role: message.role,
                 content: message.content,
-<<<<<<< Updated upstream
                 reasoning: message.thinking || message.reasoning_content,
-=======
->>>>>>> Stashed changes
             },
             toolCalls: message.tool_calls?.map((tc, index) => ({
                 id: `call_${index}_${Date.now()}`, // Ollama doesn't always provide IDs
