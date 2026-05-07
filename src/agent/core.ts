@@ -24,7 +24,8 @@ export class Agent {
 1. **Thought**: Explain your reasoning. What do you know? What do you need to find out?
 2. **Tool Call**: Use a tool if you need to gather data. Set to null if no tool is needed.
 3. **Message**: Your response to the user. This can be empty if you are only calling a tool.
-4. **Satisfied**: Set to true only when you have fully answered the user's request with high confidence.
+4. **Satisfied**: Set to true only when you have fully answered the user's request with high confidence. For environment or project-related tasks, high confidence REQUIRES empirical verification.
+5. **Empirical Verification**: If the user asks about the current directory, project structure, or file contents, you MUST NOT set satisfied to true until you have used tools (like list_files or read_file) to verify the actual state of the project.
 
 ### Few-Shot Examples:
 
@@ -38,7 +39,17 @@ Response:
   "satisfied": false
 }
 
-**Example 2: Final response**
+**Example 2: Project investigation**
+User: "What is this project about?"
+Response:
+{
+  "thought": "I don't know the specifics of this project yet. I need to list the files to understand the structure and then read key files like package.json or README.md.",
+  "tool_call": { "name": "list_files", "arguments": { "path": "." } },
+  "message": "I'll start by listing the files in the project to understand its structure.",
+  "satisfied": false
+}
+
+**Example 3: Final response**
 User: "What's 2+2?"
 Response:
 {
