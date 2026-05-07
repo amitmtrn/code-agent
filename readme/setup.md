@@ -52,3 +52,21 @@ This runs a suite of automated tests that verify:
 The agent supports two providers:
 - **Ollama**: For local models. See [Ollama Setup](./ollama-setup.md).
 - **Replicate**: For cloud-hosted models. See [Replicate Setup](./replicate-setup.md).
+
+## Deep Thinking (Self-Reflection)
+
+The agent includes a "Deep Thinking" feature that allows it to evaluate its own responses for quality and completeness. When enabled, the agent will ask itself if it's satisfied with its answer. If it's not satisfied, it will continue to refine its response or use more tools until it produces a high-quality result.
+
+### Configuration
+
+You can enable Deep Thinking via environment variables or CLI flags:
+
+- **CLI Flag**: Use `-d` or `--deep-thinking` when running the agent.
+  ```bash
+  docker compose run agent -d "Implement a complex sorting algorithm"
+  ```
+- **Environment Variable**: Set `DEEP_THINKING=true` in your `.env` file.
+
+### Advanced Settings
+
+- `MAX_THINKING_LOOPS`: Controls how many times the agent can reflect on its own response before finishing. Defaults to `2`.
