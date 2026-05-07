@@ -70,8 +70,13 @@ export class OllamaProvider implements Provider {
         tools,
       });
     } catch (error: any) {
-      if (error.message?.includes('does not support tools') && tools) {
-        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} does not support native tools. Falling back to manual parsing...`));
+      const isToolError = 
+        error.message?.includes('does not support tools') ||
+        error.message?.includes('error parsing tool call') ||
+        error.message?.includes('invalid character');
+
+      if (isToolError && tools) {
+        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with native tools. Falling back to manual parsing...`));
         response = await this.client.chat({
           model: options.model,
           messages,
