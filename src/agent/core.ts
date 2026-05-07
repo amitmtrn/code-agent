@@ -44,11 +44,105 @@ ${toolList}`;
     this.messages.push({ role: 'system', content: systemPrompt + toolInstructions });
   }
 
+  private extractJSONFromMalformed(content: string): ToolCall[] {
+    // Input validation for null safety
+    if (!content || typeof content !== 'string') return [];
+
+    try {
+      // Limit content length to avoid performance issues
+      const truncatedContent = content.slice(0, 2000);
+
+      // Strategy 1: Find JSON blocks before control tokens
+      const controlTokenPattern = /<\|(?:call|channel|message|constrain|start)\|>/;
+      const beforeControlTokens = truncatedContent.split(controlTokenPattern)[0];
+
+      // Strategy 2: Extract JSON objects using regex
+      const jsonObjectRegex = /\{[^{}]*\}/g;
+      const potentialJsons = beforeControlTokens.match(jsonObjectRegex) || [];
+
+      const extractedCalls: ToolCall[] = [];
+
+      for (let i = 0; i < potentialJsons.length; i++) {
+        const jsonStr = potentialJsons[i];
+        try {
+          const parsed = JSON.parse(jsonStr);
+
+          // Strategy 3: Infer tool name from common parameter patterns
+          let toolName = '';
+          let arguments_obj = {};
+
+          if (typeof parsed === 'object' && parsed !== null) {
+            // Check for common parameter patterns and infer tool names
+            if (parsed.path !== undefined) {
+              toolName = 'list_files';
+              arguments_obj = { path: parsed.path };
+            } else if (parsed.command !== undefined) {
+              toolName = 'execute_shell';
+              arguments_obj = { command: parsed.command };
+            } else if (parsed.content !== undefined && parsed.file_path !== undefined) {
+              toolName = 'write_file';
+              arguments_obj = parsed;
+            } else if (parsed.file_path !== undefined) {
+              toolName = 'read_file';
+              arguments_obj = { file_path: parsed.file_path };
+            } else {
+              // Try to find tool name in surrounding context
+              const contextBefore = content.slice(Math.max(0, content.indexOf(jsonStr) - 100), content.indexOf(jsonStr));
+              const contextAfter = content.slice(content.indexOf(jsonStr) + jsonStr.length, content.indexOf(jsonStr) + jsonStr.length + 100);
+              const fullContext = contextBefore + contextAfter;
+
+              if (fullContext.includes('list_files') || fullContext.includes('list files')) {
+                toolName = 'list_files';
+                arguments_obj = parsed;
+              } else if (fullContext.includes('read_file') || fullContext.includes('read file')) {
+                toolName = 'read_file';
+                arguments_obj = parsed;
+              } else if (fullContext.includes('execute_shell') || fullContext.includes('shell')) {
+                toolName = 'execute_shell';
+                arguments_obj = parsed;
+              } else {
+                // Skip if we can't determine tool name
+                continue;
+              }
+            }
+
+            if (toolName) {
+              extractedCalls.push({
+                id: `malformed_${i}_${Date.now()}`,
+                type: 'function',
+                function: {
+                  name: toolName,
+                  arguments: typeof arguments_obj === 'string'
+                    ? arguments_obj
+                    : JSON.stringify(arguments_obj),
+                },
+              });
+            }
+          }
+        } catch (e) {
+          // Continue trying other JSON objects
+          continue;
+        }
+      }
+
+      return extractedCalls;
+    } catch (e) {
+      // Log parsing failure for debugging (truncated to avoid log spam)
+      const truncatedContent = content.slice(0, 200);
+      console.warn(`Failed to extract JSON from malformed content: ${truncatedContent}...`);
+      return [];
+    }
+  }
+
   private parseManualToolCalls(content: string): ToolCall[] {
+    // Input validation for null safety
+    if (!content || typeof content !== 'string') return [];
+
+    // Strategy 1: Standard XML parsing
     const toolCallRegex = /<tool_call>(.*?)<\/tool_call>/gs;
     const matches = [...content.matchAll(toolCallRegex)];
-    
-    return matches.map((match, index) => {
+
+    const xmlParsedCalls = matches.map((match, index) => {
       try {
         const call = JSON.parse(match[1]);
         return {
@@ -56,15 +150,23 @@ ${toolList}`;
           type: 'function',
           function: {
             name: call.name,
-            arguments: typeof call.arguments === 'string' 
-              ? call.arguments 
+            arguments: typeof call.arguments === 'string'
+              ? call.arguments
               : JSON.stringify(call.arguments),
           },
         };
       } catch (e) {
-        return null as any;
+        return null;
       }
-    }).filter(tc => tc !== null);
+    }).filter((tc): tc is ToolCall => tc !== null);
+
+    // If XML parsing succeeded, return those results
+    if (xmlParsedCalls.length > 0) {
+      return xmlParsedCalls;
+    }
+
+    // Strategy 2: Fallback to malformed content extraction
+    return this.extractJSONFromMalformed(content);
   }
 
   async chat(userInput: string): Promise<void> {
