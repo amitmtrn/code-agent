@@ -51,7 +51,7 @@ async function runTests() {
   
   // Assertion - Manual Tool Recognition & Execution
   const hasExecuting = fullOutput.includes('Executing tool: list_files');
-  const hasResult = fullOutput.includes('package.json') || fullOutput.includes('src');
+  const hasResult = fullOutput.includes('CLAUDE.md') || fullOutput.includes('Dockerfile') || fullOutput.includes('dist');
   
   if (hasExecuting && hasResult) {
     console.log('PASS: Manual Tool Recognition (agent parsed and executed manual tool call)');

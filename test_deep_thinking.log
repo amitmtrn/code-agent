@@ -1,0 +1,32 @@
+--- Deep Thinking Verification Tests ---
+Scenario 1: Deep Thinking Disabled
+Thinking...
+
+Assistant: Hello
+PASS: Scenario 1
+Scenario 2: Deep Thinking Enabled - Immediate Satisfaction
+Thinking...
+
+Assistant: I am done.
+PASS: Scenario 2
+Scenario 3: Deep Thinking Enabled - Multi-loop Satisfaction
+Thinking...
+
+Assistant: Here is an initial answer.
+
+(Self-Evaluating 1/2...)
+Thinking...
+
+Assistant (Refining): Now I am satisfied.
+PASS: Scenario 3
+Scenario 4: Deep Thinking Enabled - Max Loops Limit
+Thinking...
+
+Assistant: I am still not satisfied.
+
+(Self-Evaluating 1/1...)
+Thinking...
+
+Assistant (Refining): Still not satisfied.
+PASS: Scenario 4
+--- All Deep Thinking Tests Passed ---

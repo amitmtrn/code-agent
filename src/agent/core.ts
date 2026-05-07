@@ -9,28 +9,37 @@ export class Agent {
     private provider: Provider,
     private model: string,
     private deepThinking: boolean = false,
-    private maxThinkingLoops: number = 2,
-    systemPrompt: string = `You are a helpful, interactive coding assistant. 
-When greeted or asked general questions, respond conversationally. 
-You have access to tools that can help with coding tasks. 
-Use tools ONLY when necessary to complete a specific user request like reading a file, listing directory contents, or running a shell command. 
-NEVER output raw JSON function call syntax or any other technical tool-calling format directly to the user. 
-If you decide to use a tool, do so through the internal tool-calling mechanism. 
-Always prioritize being helpful and clear in your human-readable responses.
+    private maxThinkingLoops: number = 5,
+    systemPrompt: string = `You are an expert autonomous AI agent. Your goal is to provide high-quality, verified answers.
 
-After you provide a final response (without tool calls), you will be asked to evaluate if you are satisfied. 
-If you are satisfied that you have fully answered the user's request with high quality, respond with the exact keyword: <SATISFIED>. 
-If you are NOT satisfied, explain why and continue your investigation or refine your answer.`
+### Operational Workflow:
+1. **Understand**: Analyze the user's request. Identify what you know and what you need to find out.
+2. **Investigate**: Use tools to gather data. NEVER guess if you can verify facts using a tool (e.g., list files, read code).
+3. **Think & Analyze**: Critically evaluate the data. Look for contradictions or missing pieces.
+4. **Respond**: Provide a comprehensive answer based on evidence.
+
+### Tool Usage:
+- Use tools through the internal mechanism.
+- If your model doesn't support native tool calls, you MUST call tools manually by using the following XML-like format in your response:
+<tool_call>{"name": "tool_name", "arguments": {"arg1": "value1"}}</tool_call>
+- NEVER output raw JSON to the user.
+
+### Self-Evaluation:
+- After each response, you must decide if you have fully solved the problem.
+- If you are 100% certain and satisfied, respond with the exact keyword: <SATISFIED>
+- If you are NOT satisfied, you MUST identify what is missing and CONTINUE your investigation using tools or further reasoning.
+- DO NOT say you are satisfied or confident without using the <SATISFIED> keyword.
+- DO NOT repeat yourself. If you are stuck, try a different approach.
+
+When greeted or asked general questions, respond conversationally. For technical tasks, follow the investigative process above.`
   ) {
     const toolDefinitions = registry.getDefinitions();
+    const toolList = toolDefinitions.map(t => `- ${t.name}: ${t.description}. Parameters: ${JSON.stringify(t.parameters)}`).join('\n');
+    
     const toolInstructions = `
 
-# Tools
-You have access to the following tools:
-${toolDefinitions.map(t => `- ${t.name}: ${t.description}. Parameters: ${JSON.stringify(t.parameters)}`).join('\n')}
-
-If your model does not support native tool calling, you can call tools manually by using the following XML-like format in your response:
-<tool_call>{"name": "tool_name", "arguments": {"arg1": "value1"}}</tool_call>`;
+# Available Tools
+${toolList}`;
 
     this.messages.push({ role: 'system', content: systemPrompt + toolInstructions });
   }
@@ -91,10 +100,14 @@ If your model does not support native tool calling, you can call tools manually 
         console.log(chalk.gray(`\nReasoning: ${message.reasoning}`));
       }
 
-      if (message.content && !message.content.includes('<SATISFIED>')) {
+      if (message.content) {
         const prefix = thinkingCount > 0 ? '\nAssistant (Refining):' : '\nAssistant:';
-        // Strip manual tool call tags from display output
-        const displayContent = message.content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
+        // Strip manual tool call tags and <SATISFIED> from display output
+        const displayContent = message.content
+          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+          .replace(/<SATISFIED>/g, '')
+          .trim();
+        
         if (displayContent) {
           console.log(chalk.green(prefix), displayContent);
         }
@@ -141,7 +154,7 @@ If your model does not support native tool calling, you can call tools manually 
             console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
             this.messages.push({
               role: 'user',
-              content: 'Are you satisfied with this response? If yes, respond with <SATISFIED>. If no, please continue or improve your answer.'
+              content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that this response fully answers the user\'s request and is of the highest quality? If yes, respond with <SATISFIED>. If no, identify exactly what is missing or needs improvement and continue your investigation.'
             });
           }
         } else {
