@@ -72,6 +72,8 @@ ${toolList}`;
 
     let loop = true;
     let thinkingCount = 0;
+    let consecutiveNoToolCalls = 0;
+    let lastContent = '';
 
     while (loop) {
       console.log(chalk.blue('Thinking...'));
@@ -105,7 +107,7 @@ ${toolList}`;
         // Strip manual tool call tags and <SATISFIED> from display output
         const displayContent = message.content
           .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-          .replace(/<SATISFIED>/g, '')
+          .replace(/<SATISFIED>/gi, '')
           .trim();
         
         if (displayContent) {
@@ -114,6 +116,7 @@ ${toolList}`;
       }
 
       if (toolCalls && toolCalls.length > 0) {
+        consecutiveNoToolCalls = 0;
         for (const toolCall of toolCalls) {
           console.log(chalk.yellow(`\nExecuting tool: ${toolCall.function.name}`));
           console.log(chalk.gray(`Arguments: ${toolCall.function.arguments}`));
@@ -143,10 +146,27 @@ ${toolList}`;
           }
         }
       } else {
+        consecutiveNoToolCalls++;
+        
+        // Stagnation detection
+        if (consecutiveNoToolCalls >= 3) {
+          console.log(chalk.red('\nStagnation detected: 3 consecutive turns without tool calls. Ending loop.'));
+          loop = false;
+          break;
+        }
+
+        if (message.content && message.content === lastContent) {
+          console.log(chalk.red('\nStagnation detected: Repetitive response. Ending loop.'));
+          loop = false;
+          break;
+        }
+        
+        lastContent = message.content || '';
+
         // No tool calls, check if we should reflect
         if (this.deepThinking && thinkingCount < this.maxThinkingLoops) {
           // Check if this message was a <SATISFIED> response
-          if (message.content?.includes('<SATISFIED>')) {
+          if (/<SATISFIED>/i.test(message.content || '')) {
             loop = false;
           } else {
             // Trigger reflection
@@ -154,7 +174,7 @@ ${toolList}`;
             console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
             this.messages.push({
               role: 'user',
-              content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that this response fully answers the user\'s request and is of the highest quality? If yes, respond with <SATISFIED>. If no, identify exactly what is missing or needs improvement and continue your investigation.'
+              content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that this response fully answers the user\'s request and is of the highest quality? If yes, respond with ONLY the exact keyword: <SATISFIED>. If no, you MUST use a tool to continue your investigation.'
             });
           }
         } else {
