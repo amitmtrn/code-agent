@@ -1,0 +1,2 @@
+--- Testing OllamaProvider Fallback ---
+FAIL: OllamaProvider fallback. Expected 2 calls, got 1
