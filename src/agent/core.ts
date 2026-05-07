@@ -10,28 +10,45 @@ export class Agent {
     private model: string,
     private deepThinking: boolean = false,
     private maxThinkingLoops: number = 5,
-    systemPrompt: string = `You are an expert autonomous AI agent. Your goal is to provide high-quality, verified answers.
+    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block.
 
-### Operational Workflow:
-1. **Understand**: Analyze the user's request. Identify what you know and what you need to find out.
-2. **Investigate**: Use tools to gather data. NEVER guess if you can verify facts using a tool (e.g., list files, read code).
-3. **Think & Analyze**: Critically evaluate the data. Look for contradictions or missing pieces.
-4. **Respond**: Provide a comprehensive answer based on evidence.
+### Mandatory JSON Schema:
+{
+  "thought": "your internal reasoning and plan",
+  "tool_call": { "name": "tool_name", "arguments": { "arg1": "value1" } } | null,
+  "message": "your user-facing response",
+  "satisfied": true | false
+}
 
-### Tool Usage:
-- Use tools through the internal mechanism.
-- If your model doesn't support native tool calls, you MUST call tools manually by using the following XML-like format in your response:
-<tool_call>{"name": "tool_name", "arguments": {"arg1": "value1"}}</tool_call>
-- NEVER output raw JSON to the user.
+### Guidelines:
+1. **Thought**: Explain your reasoning. What do you know? What do you need to find out?
+2. **Tool Call**: Use a tool if you need to gather data. Set to null if no tool is needed.
+3. **Message**: Your response to the user. This can be empty if you are only calling a tool.
+4. **Satisfied**: Set to true only when you have fully answered the user's request with high confidence.
 
-### Self-Evaluation:
-- After each response, you must decide if you have fully solved the problem.
-- If you are 100% certain and satisfied, respond with the exact keyword: <SATISFIED>
-- If you are NOT satisfied, you MUST identify what is missing and CONTINUE your investigation using tools or further reasoning.
-- DO NOT say you are satisfied or confident without using the <SATISFIED> keyword.
-- DO NOT repeat yourself. If you are stuck, try a different approach.
+### Few-Shot Examples:
 
-When greeted or asked general questions, respond conversationally. For technical tasks, follow the investigative process above.`
+**Example 1: Investigating with a tool**
+User: "What files are in the current directory?"
+Response:
+{
+  "thought": "The user wants to see the file structure. I need to list the files in the current directory.",
+  "tool_call": { "name": "list_files", "arguments": { "path": "." } },
+  "message": "I'll check the current directory for you.",
+  "satisfied": false
+}
+
+**Example 2: Final response**
+User: "What's 2+2?"
+Response:
+{
+  "thought": "This is a simple arithmetic question that doesn't require tools.",
+  "tool_call": null,
+  "message": "2 + 2 is 4.",
+  "satisfied": true
+}
+
+When greeted or asked general questions, follow the JSON format and respond conversationally in the 'message' field.`
   ) {
     const toolDefinitions = registry.getDefinitions();
     const toolList = toolDefinitions.map(t => `- ${t.name}: ${t.description}. Parameters: ${JSON.stringify(t.parameters)}`).join('\n');
@@ -44,129 +61,32 @@ ${toolList}`;
     this.messages.push({ role: 'system', content: systemPrompt + toolInstructions });
   }
 
-  private extractJSONFromMalformed(content: string): ToolCall[] {
-    // Input validation for null safety
-    if (!content || typeof content !== 'string') return [];
+  private parseJsonResponse(content: string): any {
+    if (!content || typeof content !== 'string') return null;
 
     try {
-      // Limit content length to avoid performance issues
-      const truncatedContent = content.slice(0, 2000);
+      // Find the first occurrence of { and the last occurrence of }
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return null;
 
-      // Strategy 1: Find JSON blocks before control tokens
-      const controlTokenPattern = /<\|(?:call|channel|message|constrain|start)\|>/;
-      const beforeControlTokens = truncatedContent.split(controlTokenPattern)[0];
-
-      // Strategy 2: Extract JSON objects using regex
-      const jsonObjectRegex = /\{[^{}]*\}/g;
-      const potentialJsons = beforeControlTokens.match(jsonObjectRegex) || [];
-
-      const extractedCalls: ToolCall[] = [];
-
-      for (let i = 0; i < potentialJsons.length; i++) {
-        const jsonStr = potentialJsons[i];
-        try {
-          const parsed = JSON.parse(jsonStr);
-
-          // Strategy 3: Infer tool name from common parameter patterns
-          let toolName = '';
-          let arguments_obj = {};
-
-          if (typeof parsed === 'object' && parsed !== null) {
-            // Check for common parameter patterns and infer tool names
-            if (parsed.path !== undefined) {
-              toolName = 'list_files';
-              arguments_obj = { path: parsed.path };
-            } else if (parsed.command !== undefined) {
-              toolName = 'execute_shell';
-              arguments_obj = { command: parsed.command };
-            } else if (parsed.content !== undefined && parsed.file_path !== undefined) {
-              toolName = 'write_file';
-              arguments_obj = parsed;
-            } else if (parsed.file_path !== undefined) {
-              toolName = 'read_file';
-              arguments_obj = { file_path: parsed.file_path };
-            } else {
-              // Try to find tool name in surrounding context
-              const contextBefore = content.slice(Math.max(0, content.indexOf(jsonStr) - 100), content.indexOf(jsonStr));
-              const contextAfter = content.slice(content.indexOf(jsonStr) + jsonStr.length, content.indexOf(jsonStr) + jsonStr.length + 100);
-              const fullContext = contextBefore + contextAfter;
-
-              if (fullContext.includes('list_files') || fullContext.includes('list files')) {
-                toolName = 'list_files';
-                arguments_obj = parsed;
-              } else if (fullContext.includes('read_file') || fullContext.includes('read file')) {
-                toolName = 'read_file';
-                arguments_obj = parsed;
-              } else if (fullContext.includes('execute_shell') || fullContext.includes('shell')) {
-                toolName = 'execute_shell';
-                arguments_obj = parsed;
-              } else {
-                // Skip if we can't determine tool name
-                continue;
-              }
-            }
-
-            if (toolName) {
-              extractedCalls.push({
-                id: `malformed_${i}_${Date.now()}`,
-                type: 'function',
-                function: {
-                  name: toolName,
-                  arguments: typeof arguments_obj === 'string'
-                    ? arguments_obj
-                    : JSON.stringify(arguments_obj),
-                },
-              });
-            }
-          }
-        } catch (e) {
-          // Continue trying other JSON objects
-          continue;
-        }
-      }
-
-      return extractedCalls;
+      const jsonStr = jsonMatch[0];
+      return JSON.parse(jsonStr);
     } catch (e) {
-      // Log parsing failure for debugging (truncated to avoid log spam)
-      const truncatedContent = content.slice(0, 200);
-      console.warn(`Failed to extract JSON from malformed content: ${truncatedContent}...`);
-      return [];
-    }
-  }
-
-  private parseManualToolCalls(content: string): ToolCall[] {
-    // Input validation for null safety
-    if (!content || typeof content !== 'string') return [];
-
-    // Strategy 1: Standard XML parsing
-    const toolCallRegex = /<tool_call>(.*?)<\/tool_call>/gs;
-    const matches = [...content.matchAll(toolCallRegex)];
-
-    const xmlParsedCalls = matches.map((match, index) => {
+      // Basic repair attempt: try to fix missing closing braces
       try {
-        const call = JSON.parse(match[1]);
-        return {
-          id: `manual_${index}_${Date.now()}`,
-          type: 'function',
-          function: {
-            name: call.name,
-            arguments: typeof call.arguments === 'string'
-              ? call.arguments
-              : JSON.stringify(call.arguments),
-          },
-        };
-      } catch (e) {
-        return null;
+        let repaired = content.trim();
+        if (!repaired.endsWith('}')) {
+          repaired += '}';
+          const secondMatch = repaired.match(/\{[\s\S]*\}/);
+          if (secondMatch) return JSON.parse(secondMatch[0]);
+        }
+      } catch (innerE) {
+        // Fallback failed
       }
-    }).filter((tc): tc is ToolCall => tc !== null);
-
-    // If XML parsing succeeded, return those results
-    if (xmlParsedCalls.length > 0) {
-      return xmlParsedCalls;
+      
+      console.warn(`Failed to parse JSON response: ${content.slice(0, 100)}...`);
+      return null;
     }
-
-    // Strategy 2: Fallback to malformed content extraction
-    return this.extractJSONFromMalformed(content);
   }
 
   async chat(userInput: string): Promise<void> {
@@ -183,38 +103,59 @@ ${toolList}`;
       const response = await this.provider.chat({
         model: this.model,
         messages: this.messages,
-        tools: registry.getDefinitions(),
+        // Disable native tools to force JSON format in content
+        tools: undefined,
       });
 
-      const { message, toolCalls: providerToolCalls } = response;
+      const { message } = response;
+      const content = message.content || '';
+      const jsonResponse = this.parseJsonResponse(content);
+
+      if (!jsonResponse) {
+        console.error(chalk.red('Error: Model failed to provide a valid JSON response.'));
+        this.messages.push({
+          role: 'user',
+          content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema.'
+        });
+        thinkingCount++;
+        if (thinkingCount >= this.maxThinkingLoops) break;
+        continue;
+      }
+
+      // Map JSON fields to internal message structure
+      const reasoning = jsonResponse.thought || message.reasoning;
+      const displayContent = jsonResponse.message || '';
+      const isSatisfied = !!jsonResponse.satisfied;
       
-      // Combine provider tool calls with manually parsed ones if necessary
-      let toolCalls = providerToolCalls;
-      if ((!toolCalls || toolCalls.length === 0) && message.content) {
-        toolCalls = this.parseManualToolCalls(message.content);
+      let toolCalls: ToolCall[] | undefined;
+      if (jsonResponse.tool_call && jsonResponse.tool_call.name) {
+        toolCalls = [{
+          id: `json_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: jsonResponse.tool_call.name,
+            arguments: typeof jsonResponse.tool_call.arguments === 'string'
+              ? jsonResponse.tool_call.arguments
+              : JSON.stringify(jsonResponse.tool_call.arguments),
+          },
+        }];
       }
 
       const assistantMessage: Message = {
-        ...message,
+        role: 'assistant',
+        content: content, // Keep the original JSON for history
+        reasoning: reasoning,
         tool_calls: toolCalls,
       };
       this.messages.push(assistantMessage);
 
-      if (message.reasoning) {
-        console.log(chalk.gray(`\nReasoning: ${message.reasoning}`));
+      if (reasoning) {
+        console.log(chalk.gray(`\nReasoning: ${reasoning}`));
       }
 
-      if (message.content) {
+      if (displayContent) {
         const prefix = thinkingCount > 0 ? '\nAssistant (Refining):' : '\nAssistant:';
-        // Strip manual tool call tags and <SATISFIED> from display output
-        const displayContent = message.content
-          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-          .replace(/<SATISFIED>/gi, '')
-          .trim();
-        
-        if (displayContent) {
-          console.log(chalk.green(prefix), displayContent);
-        }
+        console.log(chalk.green(prefix), displayContent);
       }
 
       if (toolCalls && toolCalls.length > 0) {
@@ -257,28 +198,25 @@ ${toolList}`;
           break;
         }
 
-        if (message.content && message.content === lastContent) {
+        if (content && content === lastContent) {
           console.log(chalk.red('\nStagnation detected: Repetitive response. Ending loop.'));
           loop = false;
           break;
         }
         
-        lastContent = message.content || '';
+        lastContent = content;
 
-        // No tool calls, check if we should reflect
-        if (this.deepThinking && thinkingCount < this.maxThinkingLoops) {
-          // Check if this message was a <SATISFIED> response
-          if (/<SATISFIED>/i.test(message.content || '')) {
-            loop = false;
-          } else {
-            // Trigger reflection
-            thinkingCount++;
-            console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
-            this.messages.push({
-              role: 'user',
-              content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that this response fully answers the user\'s request and is of the highest quality? If yes, respond with ONLY the exact keyword: <SATISFIED>. If no, you MUST use a tool to continue your investigation.'
-            });
-          }
+        // No tool calls, check if we should reflect or if we are satisfied
+        if (isSatisfied) {
+          loop = false;
+        } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops) {
+          // Trigger reflection
+          thinkingCount++;
+          console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
+          this.messages.push({
+            role: 'user',
+            content: 'CRITICAL SELF-EVALUATION: You are not yet satisfied but have not called a tool. You MUST use a tool to continue your investigation or provide a more complete answer if possible.'
+          });
         } else {
           loop = false;
         }
