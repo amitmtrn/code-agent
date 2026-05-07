@@ -37,32 +37,49 @@ export class OllamaProvider implements Provider {
   async chat(options: ChatOptions): Promise<ChatResponse> {
     await this.ensureModelExists(options.model);
 
-    const response = await this.client.chat({
-      model: options.model,
-      messages: options.messages.map(msg => ({
-        role: msg.role,
-        content: msg.content,
-        thinking: msg.reasoning,
-        reasoning_content: msg.reasoning,
-        tool_call_id: msg.tool_call_id,
-        name: msg.name,
-        tool_calls: msg.tool_calls?.map(tc => ({
-          type: 'function',
-          function: {
-            name: tc.function.name,
-            arguments: JSON.parse(tc.function.arguments),
-          },
-        })),
-      })) as any,
-      tools: options.tools?.map(tool => ({
+    const messages = options.messages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+      thinking: msg.reasoning,
+      reasoning_content: msg.reasoning,
+      tool_call_id: msg.tool_call_id,
+      name: msg.name,
+      tool_calls: msg.tool_calls?.map(tc => ({
         type: 'function',
         function: {
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.parameters,
+          name: tc.function.name,
+          arguments: JSON.parse(tc.function.arguments),
         },
-      })) as any,
-    });
+      })),
+    })) as any;
+
+    const tools = options.tools?.map(tool => ({
+      type: 'function',
+      function: {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      },
+    })) as any;
+
+    let response;
+    try {
+      response = await this.client.chat({
+        model: options.model,
+        messages,
+        tools,
+      });
+    } catch (error: any) {
+      if (error.message?.includes('does not support tools') && tools) {
+        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} does not support native tools. Falling back to manual parsing...`));
+        response = await this.client.chat({
+          model: options.model,
+          messages,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     const message = response.message as any;
     
