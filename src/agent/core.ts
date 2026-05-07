@@ -22,7 +22,40 @@ After you provide a final response (without tool calls), you will be asked to ev
 If you are satisfied that you have fully answered the user's request with high quality, respond with the exact keyword: <SATISFIED>. 
 If you are NOT satisfied, explain why and continue your investigation or refine your answer.`
   ) {
-    this.messages.push({ role: 'system', content: systemPrompt });
+    const toolDefinitions = registry.getDefinitions();
+    const toolInstructions = `
+
+# Tools
+You have access to the following tools:
+${toolDefinitions.map(t => `- ${t.name}: ${t.description}. Parameters: ${JSON.stringify(t.parameters)}`).join('\n')}
+
+If your model does not support native tool calling, you can call tools manually by using the following XML-like format in your response:
+<tool_call>{"name": "tool_name", "arguments": {"arg1": "value1"}}</tool_call>`;
+
+    this.messages.push({ role: 'system', content: systemPrompt + toolInstructions });
+  }
+
+  private parseManualToolCalls(content: string): ToolCall[] {
+    const toolCallRegex = /<tool_call>(.*?)<\/tool_call>/gs;
+    const matches = [...content.matchAll(toolCallRegex)];
+    
+    return matches.map((match, index) => {
+      try {
+        const call = JSON.parse(match[1]);
+        return {
+          id: `manual_${index}_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: call.name,
+            arguments: typeof call.arguments === 'string' 
+              ? call.arguments 
+              : JSON.stringify(call.arguments),
+          },
+        };
+      } catch (e) {
+        return null as any;
+      }
+    }).filter(tc => tc !== null);
   }
 
   async chat(userInput: string): Promise<void> {
@@ -40,7 +73,14 @@ If you are NOT satisfied, explain why and continue your investigation or refine 
         tools: registry.getDefinitions(),
       });
 
-      const { message, toolCalls } = response;
+      const { message, toolCalls: providerToolCalls } = response;
+      
+      // Combine provider tool calls with manually parsed ones if necessary
+      let toolCalls = providerToolCalls;
+      if ((!toolCalls || toolCalls.length === 0) && message.content) {
+        toolCalls = this.parseManualToolCalls(message.content);
+      }
+
       const assistantMessage: Message = {
         ...message,
         tool_calls: toolCalls,
@@ -53,7 +93,11 @@ If you are NOT satisfied, explain why and continue your investigation or refine 
 
       if (message.content && !message.content.includes('<SATISFIED>')) {
         const prefix = thinkingCount > 0 ? '\nAssistant (Refining):' : '\nAssistant:';
-        console.log(chalk.green(prefix), message.content);
+        // Strip manual tool call tags from display output
+        const displayContent = message.content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim();
+        if (displayContent) {
+          console.log(chalk.green(prefix), displayContent);
+        }
       }
 
       if (toolCalls && toolCalls.length > 0) {
