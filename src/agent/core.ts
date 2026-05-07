@@ -45,6 +45,9 @@ ${toolList}`;
   }
 
   private extractJSONFromMalformed(content: string): ToolCall[] {
+    // Input validation for null safety
+    if (!content || typeof content !== 'string') return [];
+
     try {
       // Limit content length to avoid performance issues
       const truncatedContent = content.slice(0, 2000);
@@ -132,6 +135,9 @@ ${toolList}`;
   }
 
   private parseManualToolCalls(content: string): ToolCall[] {
+    // Input validation for null safety
+    if (!content || typeof content !== 'string') return [];
+
     // Strategy 1: Standard XML parsing
     const toolCallRegex = /<tool_call>(.*?)<\/tool_call>/gs;
     const matches = [...content.matchAll(toolCallRegex)];
