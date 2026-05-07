@@ -12,6 +12,8 @@ const configSchema = zod_1.z.object({
     OLLAMA_BASE_URL: zod_1.z.string().default('http://localhost:11434'),
     DEFAULT_PROVIDER: zod_1.z.enum(['ollama', 'replicate']).default('ollama'),
     DEFAULT_MODEL: zod_1.z.string().default('llama3'),
+    DEEP_THINKING: zod_1.z.preprocess((val) => val === 'true', zod_1.z.boolean()).default(false),
+    MAX_THINKING_LOOPS: zod_1.z.preprocess((val) => val ? parseInt(val, 10) : undefined, zod_1.z.number()).default(2),
 });
 function loadConfig() {
     const result = configSchema.safeParse(process.env);

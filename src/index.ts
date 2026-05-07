@@ -23,6 +23,7 @@ program
   .version('0.1.0')
   .option('-p, --provider <provider>', 'LLM provider (ollama or replicate)', config.DEFAULT_PROVIDER)
   .option('-m, --model <model>', 'Model name', config.DEFAULT_MODEL)
+  .option('-d, --deep-thinking', 'Enable deep thinking (self-reflection)', config.DEEP_THINKING)
   .argument('[prompt]', 'Initial prompt for the agent')
   .action(async (initialPrompt, options) => {
     let provider;
@@ -36,7 +37,12 @@ program
       process.exit(1);
     }
 
-    const agent = new Agent(provider, options.model);
+    const agent = new Agent(
+      provider, 
+      options.model, 
+      options.deepThinking, 
+      config.MAX_THINKING_LOOPS
+    );
 
     if (initialPrompt) {
       await agent.chat(initialPrompt);

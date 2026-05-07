@@ -8,6 +8,8 @@ const configSchema = z.object({
   OLLAMA_BASE_URL: z.string().default('http://localhost:11434'),
   DEFAULT_PROVIDER: z.enum(['ollama', 'replicate']).default('ollama'),
   DEFAULT_MODEL: z.string().default('llama3'),
+  DEEP_THINKING: z.preprocess((val) => val === 'true', z.boolean()).default(false),
+  MAX_THINKING_LOOPS: z.preprocess((val) => val ? parseInt(val as string, 10) : undefined, z.number()).default(2),
 });
 
 export type Config = z.infer<typeof configSchema>;

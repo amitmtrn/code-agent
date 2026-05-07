@@ -25,6 +25,7 @@ program
     .version('0.1.0')
     .option('-p, --provider <provider>', 'LLM provider (ollama or replicate)', config_1.config.DEFAULT_PROVIDER)
     .option('-m, --model <model>', 'Model name', config_1.config.DEFAULT_MODEL)
+    .option('-d, --deep-thinking', 'Enable deep thinking (self-reflection)', config_1.config.DEEP_THINKING)
     .argument('[prompt]', 'Initial prompt for the agent')
     .action(async (initialPrompt, options) => {
     let provider;
@@ -38,7 +39,7 @@ program
         console.error(chalk_1.default.red(`Unknown provider: ${options.provider}`));
         process.exit(1);
     }
-    const agent = new core_1.Agent(provider, options.model);
+    const agent = new core_1.Agent(provider, options.model, options.deepThinking, config_1.config.MAX_THINKING_LOOPS);
     if (initialPrompt) {
         await agent.chat(initialPrompt);
     }
