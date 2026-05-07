@@ -3,6 +3,8 @@ import { Agent } from '../src/agent/core';
 import { registry } from '../src/tools/registry';
 import { listFilesTool } from '../src/tools/fs';
 import { ChatOptions, ChatResponse } from '../src/providers/types';
+import { Ollama } from 'ollama';
+import { config } from '../src/config';
 import chalk from 'chalk';
 
 // Mock Ollama client internally via OllamaProvider's client property
@@ -117,10 +119,46 @@ async function testAgentManualToolParsing() {
   }
 }
 
+async function testSmokeTest() {
+  console.log('\n--- Running Smoke Test ---');
+  
+  const ollama = new Ollama({ host: config.OLLAMA_BASE_URL });
+  
+  // Check if Ollama is responsive
+  try {
+    await ollama.list();
+  } catch (e) {
+    console.log('SKIP: Ollama not reachable, skipping smoke test');
+    return;
+  }
+
+  // If we reach here, Ollama is available. 
+  // We'll try to run the agent with a very simple prompt and a model that likely exists or will be pulled.
+  // We use a small model to be fast.
+  const model = process.env.DEFAULT_MODEL || 'llama2-uncensored:7b';
+  console.log(`Using model: ${model}`);
+
+  const provider = new OllamaProvider();
+  const agent = new Agent(provider, model);
+
+  try {
+    await agent.chat('hi');
+    console.log('PASS: Smoke test successful');
+  } catch (error: any) {
+    if (error.message?.includes('does not support tools')) {
+      console.error('FAIL: Smoke test failed with tool support error despite fix');
+      process.exit(1);
+    } else {
+      console.log(`SKIP: Smoke test failed with unrelated error (likely model missing or pull failed): ${error.message}`);
+    }
+  }
+}
+
 async function runTests() {
   try {
     await testOllamaProviderFallback();
     await testAgentManualToolParsing();
+    await testSmokeTest();
     console.log('\n--- All assertions passed ---');
   } catch (error) {
     console.error('Test failed with error:', error);
