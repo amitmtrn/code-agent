@@ -25,15 +25,6 @@ export class ReplicateProvider implements Provider {
       system_prompt: options.messages.find(m => m.role === 'system')?.content,
     };
 
-    // If tools are provided, we'd normally need to add them to the prompt 
-    // since many Replicate models don't have a native 'tools' parameter in their primary API.
-    // However, some newer ones do. For simplicity in this clone, 
-    // we'll inject tool definitions into the system prompt if not natively supported.
-    
-    if (options.tools) {
-      input.prompt = `Available tools: ${JSON.stringify(options.tools)}\n\n${input.prompt}`;
-    }
-
     const output: any = await this.client.run(options.model as any, { input });
 
     // Handle output which might be an array of strings (streamed) or a single string
@@ -47,16 +38,12 @@ export class ReplicateProvider implements Provider {
       content = content.replace(/<(thought|think)>([\s\S]*?)<\/\1>/, '').trim();
     }
 
-    // Check for tool calls in the output (simple regex for this clone)
-    const toolCalls = this.parseToolCalls(content);
-
     return {
       message: {
         role: 'assistant',
-        content: content.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim(),
+        content,
         reasoning,
       },
-      toolCalls,
     };
   }
 
@@ -79,28 +66,5 @@ export class ReplicateProvider implements Provider {
         return `${m.role}: ${displayContent}`;
       })
       .join('\n');
-  }
-
-  private parseToolCalls(content: string): ToolCall[] | undefined {
-    const toolCallRegex = /<tool_call>(.*?)<\/tool_call>/gs;
-    const matches = [...content.matchAll(toolCallRegex)];
-    
-    if (matches.length === 0) return undefined;
-
-    return matches.map((match, index) => {
-      try {
-        const call = JSON.parse(match[1]);
-        return {
-          id: `rep_${index}_${Date.now()}`,
-          type: 'function',
-          function: {
-            name: call.name,
-            arguments: JSON.stringify(call.arguments),
-          },
-        };
-      } catch (e) {
-        return null as any;
-      }
-    }).filter(tc => tc !== null);
   }
 }
