@@ -1,0 +1,20 @@
+--- Testing OllamaProvider Fallback ---
+
+⚠️  Model unsupported-model does not support native tools. Falling back to manual parsing...
+PASS: OllamaProvider fallback (retried without tools)
+PASS: OllamaProvider response (got content after fallback)
+
+--- Testing Agent Manual Tool Parsing ---
+PASS: Agent manual tool execution
+PASS: Agent display hygiene (stripped tags)
+
+--- Running Smoke Test ---
+Using model: llama2-uncensored:7b
+Thinking...
+
+⚠️  Model llama2-uncensored:7b does not support native tools. Falling back to manual parsing...
+
+Assistant: Greetings! Can you please tell me what your question is?
+PASS: Smoke test successful
+
+--- All assertions passed ---
