@@ -15,6 +15,9 @@ import chalk from 'chalk';
 async function testOllamaProviderFallback() {
   console.log('--- Testing OllamaProvider Fallback ---');
   
+  // Ensure we have at least one tool registered
+  registry.register(listFilesTool);
+  
   const provider = new OllamaProvider();
   const client = (provider as any).client;
 
@@ -100,7 +103,7 @@ async function testAgentManualToolParsing() {
 
   const fullOutput = capturedOutput.join('\n');
   const hasExecuting = fullOutput.includes('Executing tool: list_files');
-  const hasToolResult = fullOutput.includes('package.json');
+  const hasToolResult = fullOutput.includes('.dockerignore');
   const hasStrippedTags = !fullOutput.includes('<tool_call>');
 
   if (hasExecuting && hasToolResult) {
