@@ -96,8 +96,8 @@ async function testNestedRetryFailure() {
   client.chat = async (options: any) => {
     chatCalls++;
     if (chatCalls === 1) {
-      // Initial call fails with tool parsing error
-      const error = new Error("error parsing tool call: raw='{\"invalid\":\"json\"}<|call|>error'");
+      // Initial call fails with tool parsing error (use malformed JSON that can't be parsed)
+      const error = new Error("error parsing tool call: raw='{\"incomplete_json<|call|>error'");
       (error as any).status_code = 500;
       throw error;
     } else {

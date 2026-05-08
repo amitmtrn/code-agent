@@ -79,17 +79,29 @@ export class OllamaProvider implements Provider {
         const toolsUsed = tools ? 'with tools' : 'without tools';
         console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with tool parsing (${toolsUsed}). Falling back to JSON parsing...`));
 
-        // Extract any valid JSON from the raw error content if available
-        let extractedContent: string | undefined;
+        // Extract valid tool call JSON from the raw error content if available
+        let extractedToolCall: string | undefined;
         if (error.message?.includes('raw=')) {
           const rawMatch = error.message.match(/raw='([^']*)'/) || error.message.match(/raw="([^"]*)"/);
           if (rawMatch && rawMatch[1]) {
             const rawContent = rawMatch[1];
-            // Try to extract the first complete JSON object
-            const jsonMatch = rawContent.match(/^(\{[^}]*\})/);
-            if (jsonMatch) {
-              extractedContent = jsonMatch[1];
-              console.log(chalk.gray(`📝 Extracted JSON from error: ${extractedContent}`));
+            // Look for tool call specific patterns: {"cmd":...} or {"name":..., "arguments":...}
+            const toolCallPattern = /^(\{"(?:cmd|name)":[^}]+\})/;
+            const toolCallMatch = rawContent.match(toolCallPattern);
+            if (toolCallMatch) {
+              try {
+                const potentialJson = toolCallMatch[1];
+                const parsed = JSON.parse(potentialJson);
+                // Validate it's a tool call structure
+                if ((parsed.cmd && Array.isArray(parsed.cmd)) ||
+                    (parsed.name && typeof parsed.name === 'string')) {
+                  extractedToolCall = potentialJson;
+                  console.log(chalk.gray(`📝 Extracted valid tool call from error: ${extractedToolCall}`));
+                }
+              } catch (parseError) {
+                // Invalid JSON, don't use it
+                console.log(chalk.gray('📝 Found JSON-like content in error but failed validation, skipping extraction'));
+              }
             }
           }
         }
@@ -102,19 +114,20 @@ export class OllamaProvider implements Provider {
         } catch (retryError: any) {
           console.error(chalk.red(`\n❌ Fallback retry also failed: ${retryError.message}`));
 
-          // If we extracted content from the original error, try to use it
-          if (extractedContent) {
-            console.log(chalk.blue('🔄 Attempting to use extracted JSON content from original error...'));
+          // If we extracted a valid tool call from the original error, try to use it
+          if (extractedToolCall) {
+            console.log(chalk.blue('🔄 Attempting to use extracted tool call from original error...'));
             return {
               message: {
                 role: 'assistant',
-                content: extractedContent,
-                reasoning: 'Recovered from tool parsing error using extracted content',
+                content: extractedToolCall,
+                reasoning: 'Recovered from tool parsing error using extracted tool call',
               },
             };
           }
 
           // Return a safe fallback response instead of crashing
+          console.log(chalk.yellow('⚠️ Using safe fallback response due to persistent errors'));
           return {
             message: {
               role: 'assistant',
