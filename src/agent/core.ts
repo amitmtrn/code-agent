@@ -96,13 +96,25 @@ ${toolList}`;
   private parseJsonResponse(content: string): any {
     if (!content || typeof content !== 'string') return null;
 
+    if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(content)) {
+      console.warn(`Rejected content containing XML tags: ${content.slice(0, 100)}...`);
+      return null;
+    }
+
     try {
       // Find the first occurrence of { and the last occurrence of }
       const jsonMatch = content.match(/\{[\s\S]*\}/);
       if (!jsonMatch) return null;
 
       const jsonStr = jsonMatch[0];
-      return JSON.parse(jsonStr);
+      const parsed = JSON.parse(jsonStr);
+      
+      if (typeof parsed === 'object' && parsed !== null) {
+        if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
+          return parsed;
+        }
+      }
+      return null;
     } catch (e) {
       // Basic repair attempt: try to fix missing closing braces
       try {
@@ -110,7 +122,14 @@ ${toolList}`;
         if (!repaired.endsWith('}')) {
           repaired += '}';
           const secondMatch = repaired.match(/\{[\s\S]*\}/);
-          if (secondMatch) return JSON.parse(secondMatch[0]);
+          if (secondMatch) {
+            const parsed = JSON.parse(secondMatch[0]);
+            if (typeof parsed === 'object' && parsed !== null) {
+              if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
+                return parsed;
+              }
+            }
+          }
         }
       } catch (innerE) {
         // Fallback failed
@@ -146,8 +165,12 @@ ${toolList}`;
       if (!jsonResponse) {
         console.error(chalk.red('Error: Model failed to provide a valid JSON response.'));
         this.messages.push({
+          role: 'assistant',
+          content: content
+        });
+        this.messages.push({
           role: 'user',
-          content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema.'
+          content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema. DO NOT use XML tags like <tool_call>.'
         });
         thinkingCount++;
         if (thinkingCount >= this.maxThinkingLoops) break;
