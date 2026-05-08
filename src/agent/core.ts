@@ -103,11 +103,39 @@ ${toolList}`;
 
     try {
       // Find the first occurrence of { and the last occurrence of }
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
+      let jsonMatch = content.match(/\{[\s\S]*\}/);
+      let jsonStr = '';
+      
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      } else {
+        // If no closing brace, try to find the first opening brace and take everything after it
+        const startMatch = content.match(/\{[\s\S]*/);
+        if (startMatch) {
+          jsonStr = startMatch[0];
+        }
+      }
 
-      const jsonStr = jsonMatch[0];
-      const parsed = JSON.parse(jsonStr);
+      if (!jsonStr) return null;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (e) {
+        // Basic repair attempt: try to fix missing closing braces
+        let repaired = jsonStr.trim();
+        while (repaired.length > 0 && !repaired.endsWith('}')) {
+          repaired += '}';
+          try {
+            parsed = JSON.parse(repaired);
+            break;
+          } catch (innerE) {
+            // Keep adding braces until it works or we give up
+            if (repaired.length > jsonStr.length + 10) throw innerE; 
+          }
+        }
+        if (!parsed) throw e;
+      }
       
       if (typeof parsed === 'object' && parsed !== null) {
         if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
@@ -116,25 +144,6 @@ ${toolList}`;
       }
       return null;
     } catch (e) {
-      // Basic repair attempt: try to fix missing closing braces
-      try {
-        let repaired = content.trim();
-        if (!repaired.endsWith('}')) {
-          repaired += '}';
-          const secondMatch = repaired.match(/\{[\s\S]*\}/);
-          if (secondMatch) {
-            const parsed = JSON.parse(secondMatch[0]);
-            if (typeof parsed === 'object' && parsed !== null) {
-              if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
-                return parsed;
-              }
-            }
-          }
-        }
-      } catch (innerE) {
-        // Fallback failed
-      }
-      
       console.warn(`Failed to parse JSON response: ${content.slice(0, 100)}...`);
       return null;
     }
