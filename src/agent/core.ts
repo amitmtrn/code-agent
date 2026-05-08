@@ -172,7 +172,7 @@ ${toolList}`;
       const jsonResponse = this.parseJsonResponse(content);
 
       if (!jsonResponse) {
-        console.error(chalk.red('Error: Model failed to provide a valid JSON response.'));
+        console.error(chalk.red('Error: Model failed to provide a valid JSON response. Response:'), content);
         this.messages.push({
           role: 'assistant',
           content: content
