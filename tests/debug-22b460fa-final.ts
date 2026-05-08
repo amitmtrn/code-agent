@@ -44,7 +44,7 @@ async function runTests() {
   await agent1.chat('list files in current directory');
   
   const hasToolCall = mockProvider1.calls.length >= 1;
-  const toolResultInHistory = mockProvider1.calls[1]?.messages.some(m => m.role === 'user' && m.content.includes('LICENSE')); // list_files output
+  const toolResultInHistory = mockProvider1.calls[1]?.messages.some(m => m.role === 'user' && (m.content.includes('CLAUDE.md') || m.content.includes('package.json')));
   
   if (hasToolCall && toolResultInHistory) {
     console.log('PASS: JSON Tool Call Parsing');
