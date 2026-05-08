@@ -20,40 +20,61 @@ export class Agent {
   "satisfied": true | false
 }
 
+### Workflow:
+1. **Understand**: Analyze the user's request. What is the core goal?
+2. **Investigate**: If the request requires information about the current project, environment, or files, you MUST use tools to gather facts. NEVER rely on assumptions or hallucinated file structures.
+3. **Think & Analyze**: Evaluate the findings from your investigation. Do you have enough information to satisfy the request?
+4. **Respond**: Communicate your findings or ask for clarification if needed.
+
+### Critical Rules:
+- **No Hallucinations**: NEVER assume you know the project's structure or content. If you haven't called 'list_files', you know nothing about the current directory.
+- **Mandatory Investigation**: For any question about "this project", "the code", or "how it works", you MUST perform at least one tool call to investigate.
+- **Documentation First**: When investigating a project, look for README files, package manifests (package.json, Cargo.toml), and documentation folders first.
+
 ### Guidelines:
-1. **Thought**: Explain your reasoning. What do you know? What do you need to find out?
+1. **Thought**: Explain your progress through the 4-step workflow (Understand, Investigate, Think, Respond).
 2. **Tool Call**: Use a tool if you need to gather data. Set to null if no tool is needed.
 3. **Message**: Your response to the user. This can be empty if you are only calling a tool.
-4. **Satisfied**: Set to true only when you have fully answered the user's request with high confidence. For environment or project-related tasks, high confidence REQUIRES empirical verification.
-5. **Empirical Verification**: If the user asks about the current directory, project structure, or file contents, you MUST NOT set satisfied to true until you have used tools (like list_files or read_file) to verify the actual state of the project.
+4. **Satisfied**: Set to true ONLY when you have fully answered the user's request with high confidence. For project-related tasks, high confidence REQUIRES empirical verification.
+5. **Empirical Verification**: You MUST use 'list_files' and 'read_file' to understand a project before answering questions about it. Hallucinating files or structure is a critical failure.
 
 ### Few-Shot Examples:
 
-**Example 1: Investigating with a tool**
-User: "What files are in the current directory?"
+**Example 1: Project investigation**
+User: "what is this project about?"
 Response:
 {
-  "thought": "The user wants to see the file structure. I need to list the files in the current directory.",
-  "tool_call": { "name": "list_files", "arguments": { "path": "." } },
-  "message": "I'll check the current directory for you.",
-  "satisfied": false
-}
-
-**Example 2: Project investigation**
-User: "What is this project about?"
-Response:
-{
-  "thought": "I don't know the specifics of this project yet. I need to list the files to understand the structure and then read key files like package.json or README.md.",
+  "thought": "UNDERSTAND: The user wants an overview of the project. INVESTIGATE: I don't know the project structure yet. I must list the files to identify key documentation like README or package.json.",
   "tool_call": { "name": "list_files", "arguments": { "path": "." } },
   "message": "I'll start by listing the files in the project to understand its structure.",
   "satisfied": false
 }
 
-**Example 3: Final response**
+**Example 2: Following up after list_files**
+User: "I've listed the files and I see a 'readme/' folder. What's in it?"
+Response:
+{
+  "thought": "UNDERSTAND: The user wants to know the contents of the 'readme/' folder. INVESTIGATE: I will list the files in that specific directory.",
+  "tool_call": { "name": "list_files", "arguments": { "path": "readme" } },
+  "message": "Checking the 'readme/' folder for documentation.",
+  "satisfied": false
+}
+
+**Example 3: Deep Investigation**
+User: "What does the config system do?"
+Response:
+{
+  "thought": "UNDERSTAND: User wants to know about the config system. INVESTIGATE: I see src/config.ts in the file list. I need to read its content to understand how it works.",
+  "tool_call": { "name": "read_file", "arguments": { "path": "src/config.ts" } },
+  "message": "I'm reading the config file to explain how it works.",
+  "satisfied": false
+}
+
+**Example 4: Final response**
 User: "What's 2+2?"
 Response:
 {
-  "thought": "This is a simple arithmetic question that doesn't require tools.",
+  "thought": "UNDERSTAND: Simple math. No investigation needed. THINK: 2+2=4. RESPOND: Provide answer.",
   "tool_call": null,
   "message": "2 + 2 is 4.",
   "satisfied": true
@@ -226,7 +247,7 @@ ${toolList}`;
           console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
           this.messages.push({
             role: 'user',
-            content: 'CRITICAL SELF-EVALUATION: You are not yet satisfied but have not called a tool. You MUST use a tool to continue your investigation or provide a more complete answer if possible.'
+            content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that you have fully answered the user request with EMPIRICAL EVIDENCE? You are not yet satisfied and have NOT called a tool in this turn. You MUST use a tool to investigate the project or provide a more complete answer. Hallucinating information without tool use is strictly forbidden.'
           });
         } else {
           loop = false;
