@@ -70,17 +70,59 @@ export class OllamaProvider implements Provider {
         tools,
       });
     } catch (error: any) {
-      const isToolError = 
+      const isToolError =
         error.message?.includes('does not support tools') ||
         error.message?.includes('error parsing tool call') ||
         error.message?.includes('invalid character');
 
-      if (isToolError && tools) {
-        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with native tools. Falling back to JSON parsing...`));
-        response = await this.client.chat({
-          model: options.model,
-          messages,
-        });
+      if (isToolError) {
+        const toolsUsed = tools ? 'with tools' : 'without tools';
+        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with tool parsing (${toolsUsed}). Falling back to JSON parsing...`));
+
+        // Extract any valid JSON from the raw error content if available
+        let extractedContent: string | undefined;
+        if (error.message?.includes('raw=')) {
+          const rawMatch = error.message.match(/raw='([^']*)'/) || error.message.match(/raw="([^"]*)"/);
+          if (rawMatch && rawMatch[1]) {
+            const rawContent = rawMatch[1];
+            // Try to extract the first complete JSON object
+            const jsonMatch = rawContent.match(/^(\{[^}]*\})/);
+            if (jsonMatch) {
+              extractedContent = jsonMatch[1];
+              console.log(chalk.gray(`📝 Extracted JSON from error: ${extractedContent}`));
+            }
+          }
+        }
+
+        try {
+          response = await this.client.chat({
+            model: options.model,
+            messages,
+          });
+        } catch (retryError: any) {
+          console.error(chalk.red(`\n❌ Fallback retry also failed: ${retryError.message}`));
+
+          // If we extracted content from the original error, try to use it
+          if (extractedContent) {
+            console.log(chalk.blue('🔄 Attempting to use extracted JSON content from original error...'));
+            return {
+              message: {
+                role: 'assistant',
+                content: extractedContent,
+                reasoning: 'Recovered from tool parsing error using extracted content',
+              },
+            };
+          }
+
+          // Return a safe fallback response instead of crashing
+          return {
+            message: {
+              role: 'assistant',
+              content: `I encountered a technical issue with the model response. Original error: ${error.message}. Retry error: ${retryError.message}`,
+              reasoning: 'Fallback response due to persistent errors',
+            },
+          };
+        }
       } else {
         throw error;
       }
