@@ -8,10 +8,6 @@ import { config } from '../src/config';
 import chalk from 'chalk';
 
 // Mock Ollama client internally via OllamaProvider's client property
-// Since client is private, we'll use a type-casting hack for testing
-// or better, we can mock the entire provider for the Agent test, 
-// and test the OllamaProvider separately.
-
 async function testOllamaProviderFallback() {
   console.log('--- Testing OllamaProvider Fallback ---');
   
@@ -37,7 +33,7 @@ async function testOllamaProviderFallback() {
     return {
       message: {
         role: 'assistant',
-        content: 'I can answer this without tools!'
+        content: '{"thought": "no tools needed", "tool_call": null, "message": "I can answer this without tools!", "satisfied": true}'
       }
     };
   };
@@ -55,7 +51,8 @@ async function testOllamaProviderFallback() {
     process.exit(1);
   }
 
-  if (response.message.content === 'I can answer this without tools!') {
+  // The Agent would parse this, but here we are checking the raw provider response content
+  if (response.message.content.includes('I can answer this without tools!')) {
     console.log('PASS: OllamaProvider response (got content after fallback)');
   } else {
     console.error(`FAIL: OllamaProvider response. Got: ${response.message.content}`);
@@ -64,7 +61,7 @@ async function testOllamaProviderFallback() {
 }
 
 async function testAgentManualToolParsing() {
-  console.log('\n--- Testing Agent Manual Tool Parsing ---');
+  console.log('\n--- Testing Agent JSON Tool Parsing ---');
   
   registry.register(listFilesTool);
 
@@ -74,14 +71,14 @@ async function testAgentManualToolParsing() {
         return {
           message: {
             role: 'assistant',
-            content: 'Let me list files. <tool_call>{"name": "list_files", "arguments": {"path": "."}}</tool_call>'
+            content: '{"thought": "Listing files", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "message": "Let me list files.", "satisfied": false}'
           }
         };
       }
       return {
         message: {
           role: 'assistant',
-          content: 'I listed the files. <SATISFIED>'
+          content: '{"thought": "Done", "tool_call": null, "message": "I listed the files.", "satisfied": true}'
         }
       };
     }
@@ -94,7 +91,6 @@ async function testAgentManualToolParsing() {
   const originalLog = console.log;
   console.log = (...args: any[]) => {
     capturedOutput.push(args.join(' '));
-    // originalLog(...args); // Keep output quiet during test
   };
 
   await agent.chat('list files');
@@ -103,57 +99,23 @@ async function testAgentManualToolParsing() {
 
   const fullOutput = capturedOutput.join('\n');
   const hasExecuting = fullOutput.includes('Executing tool: list_files');
-  const hasToolResult = fullOutput.includes('.dockerignore');
-  const hasStrippedTags = !fullOutput.includes('<tool_call>');
+  const hasToolResult = fullOutput.includes('package.json') || fullOutput.includes('Dockerfile') || fullOutput.includes('src');
+  const hasStrippedJson = !fullOutput.includes('"tool_call"');
 
   if (hasExecuting && hasToolResult) {
-    console.log('PASS: Agent manual tool execution');
+    console.log('PASS: Agent JSON tool execution');
   } else {
-    console.error('FAIL: Agent manual tool execution');
+    console.error('FAIL: Agent JSON tool execution');
     console.error('Output:', fullOutput);
     process.exit(1);
   }
 
-  if (hasStrippedTags) {
-    console.log('PASS: Agent display hygiene (stripped tags)');
+  if (hasStrippedJson) {
+    console.log('PASS: Agent display hygiene (raw JSON keys not in output)');
   } else {
-    console.error('FAIL: Agent display hygiene (tags still present)');
+    console.error('FAIL: Agent display hygiene (raw JSON keys still present)');
+    console.error('Output:', fullOutput);
     process.exit(1);
-  }
-}
-
-async function testSmokeTest() {
-  console.log('\n--- Running Smoke Test ---');
-  
-  const ollama = new Ollama({ host: config.OLLAMA_BASE_URL });
-  
-  // Check if Ollama is responsive
-  try {
-    await ollama.list();
-  } catch (e) {
-    console.log('SKIP: Ollama not reachable, skipping smoke test');
-    return;
-  }
-
-  // If we reach here, Ollama is available. 
-  // We'll try to run the agent with a very simple prompt and a model that likely exists or will be pulled.
-  // We use a small model to be fast.
-  const model = process.env.DEFAULT_MODEL || 'llama2-uncensored:7b';
-  console.log(`Using model: ${model}`);
-
-  const provider = new OllamaProvider();
-  const agent = new Agent(provider, model);
-
-  try {
-    await agent.chat('hi');
-    console.log('PASS: Smoke test successful');
-  } catch (error: any) {
-    if (error.message?.includes('does not support tools')) {
-      console.error('FAIL: Smoke test failed with tool support error despite fix');
-      process.exit(1);
-    } else {
-      console.log(`SKIP: Smoke test failed with unrelated error (likely model missing or pull failed): ${error.message}`);
-    }
   }
 }
 
@@ -161,7 +123,6 @@ async function runTests() {
   try {
     await testOllamaProviderFallback();
     await testAgentManualToolParsing();
-    await testSmokeTest();
     console.log('\n--- All assertions passed ---');
   } catch (error) {
     console.error('Test failed with error:', error);

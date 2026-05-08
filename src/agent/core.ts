@@ -10,7 +10,7 @@ export class Agent {
     private model: string,
     private deepThinking: boolean = false,
     private maxThinkingLoops: number = 5,
-    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block.
+    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
 
 ### Mandatory JSON Schema:
 {

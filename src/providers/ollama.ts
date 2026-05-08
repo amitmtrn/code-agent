@@ -76,7 +76,7 @@ export class OllamaProvider implements Provider {
         error.message?.includes('invalid character');
 
       if (isToolError && tools) {
-        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with native tools. Falling back to manual parsing...`));
+        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with native tools. Falling back to JSON parsing...`));
         response = await this.client.chat({
           model: options.model,
           messages,

@@ -32,17 +32,27 @@ async function runTest() {
 
   const case1Provider = new ConfigurableMockProvider((turn) => {
     if (turn === 1) {
-      return { message: { role: 'assistant', content: 'I need to check the project files.' } };
+      return { 
+        message: { 
+          role: 'assistant', 
+          content: '{"thought": "I need to check the project files.", "tool_call": null, "message": "Checking files...", "satisfied": false}' 
+        } 
+      };
     }
     if (turn === 2) {
       return { 
         message: { 
           role: 'assistant', 
-          content: 'Checking package.json: <tool_call>{"name": "read_file", "arguments": {"file_path": "package.json"}}</tool_call>' 
+          content: '{"thought": "Reading package.json", "tool_call": {"name": "read_file", "arguments": {"file_path": "package.json"}}, "message": "Reading package.json...", "satisfied": false}' 
         } 
       };
     }
-    return { message: { role: 'assistant', content: 'I have found the information. <SATISFIED>' } };
+    return { 
+      message: { 
+        role: 'assistant', 
+        content: '{"thought": "Done", "tool_call": null, "message": "I have found the information.", "satisfied": true}' 
+      } 
+    };
   });
 
   const agent1 = new Agent(case1Provider, 'mock', true, 5);
@@ -61,12 +71,21 @@ async function runTest() {
   // Case 2: Stagnation Hard-Stop (3 turn limit)
   console.log('\n[Case 2] Verifying stagnation hard-stop (3 turns)...');
   const case2Provider = new ConfigurableMockProvider((turn) => {
-    return { message: { role: 'assistant', content: `Working on it... turn ${turn}` } };
+    return { 
+      message: { 
+        role: 'assistant', 
+        content: `{"thought": "thinking ${turn}", "tool_call": null, "message": "Working on it...", "satisfied": false}` 
+      } 
+    };
   });
 
   const agent2 = new Agent(case2Provider, 'mock', true, 5);
   await agent2.chat('Do something complicated');
 
+  // Turn 1: initial call
+  // Turn 2: after first "Self-Evaluating"
+  // Turn 3: after second "Self-Evaluating"
+  // At end of Turn 3, consecutiveNoToolCalls is 3, loop ends.
   if (case2Provider.turn === 3) {
     console.log('PASS: Agent stopped after 3 turns due to stagnation');
   } else {
@@ -74,17 +93,22 @@ async function runTest() {
     process.exit(1);
   }
 
-  // Case 3: Keyword Termination
-  console.log('\n[Case 3] Verifying keyword termination (<SATISFIED>)...');
+  // Case 3: Satisfaction termination
+  console.log('\n[Case 3] Verifying satisfaction termination...');
   const case3Provider = new ConfigurableMockProvider((turn) => {
-    return { message: { role: 'assistant', content: 'Done! <satisfied>' } };
+    return { 
+      message: { 
+        role: 'assistant', 
+        content: '{"thought": "done", "tool_call": null, "message": "Done!", "satisfied": true}' 
+      } 
+    };
   });
 
   const agent3 = new Agent(case3Provider, 'mock', true, 5);
   await agent3.chat('Quick task');
 
   if (case3Provider.turn === 1) {
-    console.log('PASS: Agent terminated immediately on <SATISFIED>');
+    console.log('PASS: Agent terminated immediately on satisfied: true');
   } else {
     console.log(`FAIL: Agent should have terminated after 1 turn, but took ${case3Provider.turn} turns`);
     process.exit(1);
