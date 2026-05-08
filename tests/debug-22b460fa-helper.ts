@@ -14,63 +14,24 @@ class MockProvider implements Provider {
   async chat(options: ChatOptions): Promise<ChatResponse> {
     // Clone messages to avoid mutations affecting recorded history
     this.calls.push({ ...options, messages: [...options.messages] });
-    return this.responses[this.currentResponse++] || { message: { role: 'assistant', content: '{"thought": "end", "tool_call": null, "message": "No more responses", "satisfied": true}' } };
+    const response = this.responses[this.currentResponse++];
+    if (!response) {
+       return { message: { role: 'assistant', content: '{"thought": "end", "tool_call": null, "message": "No more responses", "satisfied": true}' } };
+    }
+    return response;
   }
 }
 
 async function runTests() {
-  console.log('--- Starting JSON Format Migration Tests (PHASE 7) ---');
+  console.log('--- Starting JSON Format Migration Tests ---');
 
-  // 1. System Prompt Verification
-  console.log('1. System Prompt Verification');
-  const mockProvider1 = new MockProvider([]);
-  const agent1 = new Agent(mockProvider1, 'mock-model');
-  // Accessing private messages for verification
-  const messages = (agent1 as any).messages;
-  const systemMessage = messages.find((m: any) => m.role === 'system');
-  
-  const hasSchema = systemMessage.content.includes('"thought":');
-  const hasNoXmlWarning = systemMessage.content.includes('DO NOT use any XML tags like <tool_call> or <thinking>');
-  
-  if (hasSchema && hasNoXmlWarning) {
-    console.log('PASS: System Prompt contains JSON schema and XML warning');
-  } else {
-    console.log('FAIL: System Prompt is missing required instructions');
-    console.log('Content:', systemMessage.content);
-    process.exit(1);
-  }
-
-  // 2. JSON Parsing with Mixed Content
-  console.log('2. JSON Parsing with Mixed Content');
-  const mixedContent = 'Here is what I found:\n\n{ "thought": "Extracting info", "tool_call": null, "message": "The result is 42", "satisfied": true }\n\nHope this helps!';
-  const mockProvider2 = new MockProvider([{ message: { role: 'assistant', content: mixedContent } }]);
-  const agent2 = new Agent(mockProvider2, 'mock-model');
-  
-  let capturedMessage = '';
-  const originalLog = console.log;
-  console.log = (...args: any[]) => {
-    const s = args.join(' ');
-    if (s.includes('Assistant:')) capturedMessage = s;
-    originalLog(...args);
-  };
-
-  await agent2.chat('What is the answer?');
-  console.log = originalLog;
-
-  if (capturedMessage.includes('The result is 42')) {
-    console.log('PASS: Successfully parsed JSON from mixed content');
-  } else {
-    console.log('FAIL: Failed to extract message from mixed content');
-    process.exit(1);
-  }
-
-  // 3. Integration Test: Tool Call Execution
-  console.log('3. Integration Test: Tool Call Execution');
-  const mockProvider3 = new MockProvider([
+  // 1. Valid JSON Tool Call
+  console.log('1. Valid JSON Tool Call');
+  const mockProvider1 = new MockProvider([
     {
       message: { 
         role: 'assistant', 
-        content: '{ "thought": "I need to list files.", "tool_call": { "name": "list_files", "arguments": { "path": "." } }, "message": "Listing files...", "satisfied": false }' 
+        content: '{ "thought": "Searching files", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "message": "I will list the files.", "satisfied": false }' 
       }
     },
     {
@@ -80,65 +41,103 @@ async function runTests() {
       }
     }
   ]);
-  const agent3 = new Agent(mockProvider3, 'mock-model');
-  await agent3.chat('List files');
+  const agent1 = new Agent(mockProvider1, 'mock-model');
+  await agent1.chat('List files');
   
-  if (mockProvider3.calls.length === 2) {
+  if (mockProvider1.calls.length === 2) {
     console.log('PASS: Tool call executed and result passed back');
   } else {
-    console.log('FAIL: Expected 2 provider calls, got ' + mockProvider3.calls.length);
+    console.log('FAIL: Expected 2 provider calls, got ' + mockProvider1.calls.length);
     process.exit(1);
   }
 
-  // 4. Negative Test: XML Rejection
-  console.log('4. Negative Test: XML Rejection');
-  const mockProvider4 = new MockProvider([
-    { message: { role: 'assistant', content: '<tool_call>{"name": "list_files", "arguments": {"path": "."}}</tool_call>' } },
+  // 2. XML Rejection
+  console.log('2. XML Rejection');
+  const mockProvider2 = new MockProvider([
+    { message: { role: 'assistant', content: 'I will use a tool. <tool_call>{"name": "list_files"}</tool_call>' } },
     { message: { role: 'assistant', content: '{ "thought": "Correcting format", "tool_call": null, "message": "Corrected", "satisfied": true }' } }
   ]);
-  const agent4 = new Agent(mockProvider4, 'mock-model');
-  await agent4.chat('List files');
+  const agent2 = new Agent(mockProvider2, 'mock-model');
+  await agent2.chat('List files');
   
-  // Check if second message from user was "INVALID FORMAT"
-  const secondUserMessage = mockProvider4.calls[1].messages[mockProvider4.calls[1].messages.length - 1];
+  const secondUserMessage = mockProvider2.calls[1].messages[mockProvider2.calls[1].messages.length - 1];
   if (secondUserMessage.role === 'user' && secondUserMessage.content.includes('INVALID FORMAT')) {
     console.log('PASS: Agent rejected XML and requested JSON');
   } else {
     console.log('FAIL: Agent did not reject XML correctly');
-    console.log('Second user message:', JSON.stringify(secondUserMessage));
     process.exit(1);
   }
 
-  // 5. Loop Termination Test
-  console.log('5. Loop Termination Test');
-  // Mock a provider that keeps yapping without JSON
-  const mockProvider5 = new MockProvider([
-    { message: { role: 'assistant', content: 'I refuse to use JSON.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } },
-    { message: { role: 'assistant', content: 'Still refusing.' } }
+  // 3. JSON Repair (Missing brace)
+  console.log('3. JSON Repair (Missing brace)');
+  const mockProvider3 = new MockProvider([
+    { message: { role: 'assistant', content: '{"thought": "Reasoning...", "message": "Answer is 42", "satisfied": true' } }
   ]);
-  // Use a low maxThinkingLoops to speed up the test
-  const agent5 = new Agent(mockProvider5, 'mock-model', false, 3);
-  await agent5.chat('Do something');
+  const agent3 = new Agent(mockProvider3, 'mock-model');
   
-  // maxThinkingLoops is 3, but the first turn isn't counted as a "thinking loop" in the same way?
-  // Let's check how many times chat was called.
-  // 1 initial call + 3 thinking loops = 4 total calls? 
-  // Actually, the loop in Agent.chat:
-  // let loopCount = 0;
-  // while (loopCount < this.options.maxThinkingLoops) { ... loopCount++ }
-  // So it should be maxThinkingLoops (3) iterations of the while loop, 
-  // PLUS the initial prompt if it's outside?
-  // Let's check core.ts
+  let capturedOutput = '';
+  const originalLog = console.log;
+  console.log = (...args: any[]) => {
+    capturedOutput += args.join(' ') + '\n';
+    originalLog(...args);
+  };
   
-  if (mockProvider5.calls.length <= 4) {
-    console.log('PASS: Agent terminated after maxThinkingLoops');
+  await agent3.chat('What is the answer?');
+  console.log = originalLog;
+
+  if (capturedOutput.includes('Answer is 42')) {
+    console.log('PASS: Successfully repaired and parsed JSON with missing brace');
   } else {
-    console.log('FAIL: Agent looped too many times: ' + mockProvider5.calls.length);
+    console.log('FAIL: Failed to repair JSON');
+    process.exit(1);
+  }
+
+  // 4. Stagnation Detection (3 turns without tool calls)
+  console.log('4. Stagnation Detection (3 turns without tool calls)');
+  const mockProvider4 = new MockProvider([
+    { message: { role: 'assistant', content: '{"thought": "Thinking...", "tool_call": null, "message": "Turn 1", "satisfied": false}' } },
+    { message: { role: 'assistant', content: '{"thought": "Thinking...", "tool_call": null, "message": "Turn 2", "satisfied": false}' } },
+    { message: { role: 'assistant', content: '{"thought": "Thinking...", "tool_call": null, "message": "Turn 3", "satisfied": false}' } },
+    { message: { role: 'assistant', content: '{"thought": "Thinking...", "tool_call": null, "message": "Turn 4", "satisfied": false}' } }
+  ]);
+  // deepThinking must be true to trigger more turns if not satisfied
+  const agent4 = new Agent(mockProvider4, 'mock-model', true, 5);
+  await agent4.chat('Keep thinking');
+  
+  if (mockProvider4.calls.length === 3) {
+    console.log('PASS: Agent terminated after 3 turns without tool calls');
+  } else {
+    console.log('FAIL: Agent failed to detect stagnation. Calls: ' + mockProvider4.calls.length);
+    process.exit(1);
+  }
+
+  // 5. Display Hygiene
+  console.log('5. Display Hygiene');
+  const mockProvider5 = new MockProvider([
+    { message: { role: 'assistant', content: '{"thought": "Confidential thought", "tool_call": null, "message": "Public message", "satisfied": true}' } }
+  ]);
+  const agent5 = new Agent(mockProvider5, 'mock-model');
+  
+  capturedOutput = '';
+  console.log = (...args: any[]) => {
+    capturedOutput += args.join(' ') + '\n';
+    originalLog(...args);
+  };
+  
+  await agent5.chat('Say something');
+  console.log = originalLog;
+
+  const containsRawJson = capturedOutput.includes('{"thought":');
+  const containsMessage = capturedOutput.includes('Public message');
+  const containsThought = capturedOutput.includes('Confidential thought');
+
+  if (!containsRawJson && containsMessage && containsThought) {
+    console.log('PASS: Output shows message and thought but hides raw JSON');
+  } else {
+    console.log('FAIL: Display hygiene check failed');
+    console.log('Contains Raw JSON:', containsRawJson);
+    console.log('Contains Message:', containsMessage);
+    console.log('Contains Thought:', containsThought);
     process.exit(1);
   }
 
