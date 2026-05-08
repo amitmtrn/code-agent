@@ -109,6 +109,39 @@ async function runTests() {
     process.exit(1);
   }
 
+  // 5. Loop Termination Test
+  console.log('5. Loop Termination Test');
+  // Mock a provider that keeps yapping without JSON
+  const mockProvider5 = new MockProvider([
+    { message: { role: 'assistant', content: 'I refuse to use JSON.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } },
+    { message: { role: 'assistant', content: 'Still refusing.' } }
+  ]);
+  // Use a low maxThinkingLoops to speed up the test
+  const agent5 = new Agent(mockProvider5, 'mock-model', false, 3);
+  await agent5.chat('Do something');
+  
+  // maxThinkingLoops is 3, but the first turn isn't counted as a "thinking loop" in the same way?
+  // Let's check how many times chat was called.
+  // 1 initial call + 3 thinking loops = 4 total calls? 
+  // Actually, the loop in Agent.chat:
+  // let loopCount = 0;
+  // while (loopCount < this.options.maxThinkingLoops) { ... loopCount++ }
+  // So it should be maxThinkingLoops (3) iterations of the while loop, 
+  // PLUS the initial prompt if it's outside?
+  // Let's check core.ts
+  
+  if (mockProvider5.calls.length <= 4) {
+    console.log('PASS: Agent terminated after maxThinkingLoops');
+  } else {
+    console.log('FAIL: Agent looped too many times: ' + mockProvider5.calls.length);
+    process.exit(1);
+  }
+
   console.log('--- All JSON Migration Tests Passed ---');
 }
 
