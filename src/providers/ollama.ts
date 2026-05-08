@@ -70,17 +70,72 @@ export class OllamaProvider implements Provider {
         tools,
       });
     } catch (error: any) {
-      const isToolError = 
+      const isToolError =
         error.message?.includes('does not support tools') ||
         error.message?.includes('error parsing tool call') ||
         error.message?.includes('invalid character');
 
-      if (isToolError && tools) {
-        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with native tools. Falling back to JSON parsing...`));
-        response = await this.client.chat({
-          model: options.model,
-          messages,
-        });
+      if (isToolError) {
+        const toolsUsed = tools ? 'with tools' : 'without tools';
+        console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with tool parsing (${toolsUsed}). Falling back to JSON parsing...`));
+
+        // Extract valid tool call JSON from the raw error content if available
+        let extractedToolCall: string | undefined;
+        if (error.message?.includes('raw=')) {
+          const rawMatch = error.message.match(/raw='([^']*)'/) || error.message.match(/raw="([^"]*)"/);
+          if (rawMatch && rawMatch[1]) {
+            const rawContent = rawMatch[1];
+            // Look for tool call specific patterns: {"cmd":...} or {"name":..., "arguments":...}
+            const toolCallPattern = /^(\{"(?:cmd|name)":[^}]+\})/;
+            const toolCallMatch = rawContent.match(toolCallPattern);
+            if (toolCallMatch) {
+              try {
+                const potentialJson = toolCallMatch[1];
+                const parsed = JSON.parse(potentialJson);
+                // Validate it's a tool call structure
+                if ((parsed.cmd && Array.isArray(parsed.cmd)) ||
+                    (parsed.name && typeof parsed.name === 'string')) {
+                  extractedToolCall = potentialJson;
+                  console.log(chalk.gray(`📝 Extracted valid tool call from error: ${extractedToolCall}`));
+                }
+              } catch (parseError) {
+                // Invalid JSON, don't use it
+                console.log(chalk.gray('📝 Found JSON-like content in error but failed validation, skipping extraction'));
+              }
+            }
+          }
+        }
+
+        try {
+          response = await this.client.chat({
+            model: options.model,
+            messages,
+          });
+        } catch (retryError: any) {
+          console.error(chalk.red(`\n❌ Fallback retry also failed: ${retryError.message}`));
+
+          // If we extracted a valid tool call from the original error, try to use it
+          if (extractedToolCall) {
+            console.log(chalk.blue('🔄 Attempting to use extracted tool call from original error...'));
+            return {
+              message: {
+                role: 'assistant',
+                content: extractedToolCall,
+                reasoning: 'Recovered from tool parsing error using extracted tool call',
+              },
+            };
+          }
+
+          // Return a safe fallback response instead of crashing
+          console.log(chalk.yellow('⚠️ Using safe fallback response due to persistent errors'));
+          return {
+            message: {
+              role: 'assistant',
+              content: `I encountered a technical issue with the model response. Original error: ${error.message}. Retry error: ${retryError.message}`,
+              reasoning: 'Fallback response due to persistent errors',
+            },
+          };
+        }
       } else {
         throw error;
       }
