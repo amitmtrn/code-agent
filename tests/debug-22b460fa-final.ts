@@ -44,13 +44,14 @@ async function runTests() {
   await agent1.chat('list files in current directory');
   
   const hasToolCall = mockProvider1.calls.length >= 1;
-  const toolResultInHistory = mockProvider1.calls[1]?.messages.some(m => m.role === 'user' && (m.content.includes('CLAUDE.md') || m.content.includes('package.json')));
+  const toolResultInHistory = mockProvider1.calls[1]?.messages.some(m => m.role === 'tool' && (m.content.includes('CLAUDE.md') || m.content.includes('package.json')));
   
   if (hasToolCall && toolResultInHistory) {
     console.log('PASS: JSON Tool Call Parsing');
   } else {
     console.log('FAIL: JSON Tool Call Parsing');
     console.log('Calls:', mockProvider1.calls.length);
+    console.log('Messages in call 1:', JSON.stringify(mockProvider1.calls[1]?.messages, null, 2));
     process.exit(1);
   }
 
