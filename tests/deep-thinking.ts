@@ -8,7 +8,7 @@ class MockProvider implements Provider {
 
   async chat(options: ChatOptions): Promise<ChatResponse> {
     this.calls++;
-    return this.responses[this.currentResponse++] || { message: { role: 'assistant', content: 'No more responses' } };
+    return this.responses[this.currentResponse++] || { message: { role: 'assistant', content: '{"thought": "done", "tool_call": null, "message": "No more responses", "satisfied": true}' } };
   }
 }
 
@@ -18,7 +18,7 @@ async function runTests() {
   // Scenario 1: Deep Thinking Disabled
   {
     console.log('Scenario 1: Deep Thinking Disabled');
-    const mock = new MockProvider([{ message: { role: 'assistant', content: 'Hello' } }]);
+    const mock = new MockProvider([{ message: { role: 'assistant', content: '{"thought": "hello", "tool_call": null, "message": "Hello", "satisfied": true}' } }]);
     const agent = new Agent(mock, 'mock', false);
     await agent.chat('Hello');
     if (mock.calls === 1) {
@@ -32,7 +32,7 @@ async function runTests() {
   // Scenario 2: Deep Thinking Enabled - Immediate Satisfaction
   {
     console.log('Scenario 2: Deep Thinking Enabled - Immediate Satisfaction');
-    const mock = new MockProvider([{ message: { role: 'assistant', content: '<SATISFIED> I am done.' } }]);
+    const mock = new MockProvider([{ message: { role: 'assistant', content: '{"thought": "I am done.", "tool_call": null, "message": "I am done.", "satisfied": true}' } }]);
     const agent = new Agent(mock, 'mock', true);
     await agent.chat('Hello');
     if (mock.calls === 1) {
@@ -47,8 +47,8 @@ async function runTests() {
   {
     console.log('Scenario 3: Deep Thinking Enabled - Multi-loop Satisfaction');
     const mock = new MockProvider([
-      { message: { role: 'assistant', content: 'Here is an initial answer.' } },
-      { message: { role: 'assistant', content: '<SATISFIED> Now I am satisfied.' } }
+      { message: { role: 'assistant', content: '{"thought": "initial answer", "tool_call": null, "message": "Here is an initial answer.", "satisfied": false}' } },
+      { message: { role: 'assistant', content: '{"thought": "satisfied now", "tool_call": null, "message": "Now I am satisfied.", "satisfied": true}' } }
     ]);
     const agent = new Agent(mock, 'mock', true, 2);
     await agent.chat('Hello');
@@ -64,9 +64,9 @@ async function runTests() {
   {
     console.log('Scenario 4: Deep Thinking Enabled - Max Loops Limit');
     const mock = new MockProvider([
-      { message: { role: 'assistant', content: 'I am still not satisfied.' } },
-      { message: { role: 'assistant', content: 'Still not satisfied.' } },
-      { message: { role: 'assistant', content: 'I should have stopped before this.' } }
+      { message: { role: 'assistant', content: '{"thought": "not satisfied", "tool_call": null, "message": "I am still not satisfied.", "satisfied": false}' } },
+      { message: { role: 'assistant', content: '{"thought": "still not satisfied", "tool_call": null, "message": "Still not satisfied.", "satisfied": false}' } },
+      { message: { role: 'assistant', content: '{"thought": "should stop", "tool_call": null, "message": "I should have stopped before this.", "satisfied": false}' } }
     ]);
     const agent = new Agent(mock, 'mock', true, 1);
     await agent.chat('Hello');

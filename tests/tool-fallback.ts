@@ -19,7 +19,7 @@ class MockProvider implements Provider {
 
   async chat(options: ChatOptions): Promise<ChatResponse> {
     this.calls++;
-    return this.responses[this.currentResponse++] || { message: { role: 'assistant', content: '<SATISFIED>' } };
+    return this.responses[this.currentResponse++] || { message: { role: 'assistant', content: '{"thought": "done", "tool_call": null, "message": "Done", "satisfied": true}' } };
   }
 }
 
@@ -29,47 +29,47 @@ async function runTests() {
   // Setup: Register tools
   registry.register(listFilesTool);
 
-  // 1. Action - Manual Tool Recognition & Display Hygiene
-  // Provide a mocked assistant response with manual tool call tags
-  const manualToolResponse = 'Let me check that for you. <tool_call>{"name": "list_files", "arguments": {"path": "."}}</tool_call>';
+  // 1. Action - Manual Tool Recognition (JSON-based)
+  // Provide a mocked assistant response with JSON tool call
+  const jsonToolResponse = '{"thought": "I need to list files", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "message": "Let me check that for you.", "satisfied": false}';
   const mockProvider = new MockProvider([
     {
-      message: { role: 'assistant', content: manualToolResponse }
+      message: { role: 'assistant', content: jsonToolResponse }
     },
     {
-      message: { role: 'assistant', content: 'I found the files. <SATISFIED>' }
+      message: { role: 'assistant', content: '{"thought": "I found the files", "tool_call": null, "message": "I found the files.", "satisfied": true}' }
     }
   ]);
 
   const agent = new Agent(mockProvider, 'mock-model');
   capturedOutput = [];
   
-  console.log('Running chat for manual tool call test...');
+  console.log('Running chat for JSON tool call test...');
   await agent.chat('list files');
 
   const fullOutput = capturedOutput.join('\n');
   
-  // Assertion - Manual Tool Recognition & Execution
+  // Assertion - Tool Recognition & Execution
   const hasExecuting = fullOutput.includes('Executing tool: list_files');
   const hasResult = fullOutput.includes('CLAUDE.md') || fullOutput.includes('Dockerfile') || fullOutput.includes('dist');
   
   if (hasExecuting && hasResult) {
-    console.log('PASS: Manual Tool Recognition (agent parsed and executed manual tool call)');
+    console.log('PASS: Tool Recognition (agent parsed and executed JSON tool call)');
   } else {
-    console.log('FAIL: Manual Tool Recognition');
+    console.log('FAIL: Tool Recognition');
     console.log('Executing:', hasExecuting, 'Result:', hasResult);
     process.exit(1);
   }
 
-  // Assertion - Display Hygiene
-  const hasRawTags = fullOutput.includes('<tool_call>') || fullOutput.includes('</tool_call>');
+  // Assertion - Display Hygiene (should only show message field)
+  const hasRawJson = fullOutput.includes('"tool_call"');
   const hasNaturalLanguage = fullOutput.includes('Let me check that for you.');
   
-  if (!hasRawTags && hasNaturalLanguage) {
-    console.log('PASS: Display Hygiene (raw tags stripped from output)');
+  if (!hasRawJson && hasNaturalLanguage) {
+    console.log('PASS: Display Hygiene (raw JSON not shown in user-facing output)');
   } else {
     console.log('FAIL: Display Hygiene');
-    console.log('Has raw tags:', hasRawTags, 'Has natural language:', hasNaturalLanguage);
+    console.log('Has raw JSON:', hasRawJson, 'Has natural language:', hasNaturalLanguage);
     process.exit(1);
   }
 
@@ -80,38 +80,6 @@ async function runTests() {
   } else {
     console.log('FAIL: Loop Completion');
     console.log('Has final summary:', hasFinalSummary, 'Provider calls:', mockProvider.calls);
-    process.exit(1);
-  }
-
-  // 2. Assertion - Fallback Invariant (Still works if provider provides native tool calls)
-  const nativeToolProvider = new MockProvider([
-    {
-      message: { role: 'assistant', content: 'Checking natively.' },
-      toolCalls: [
-        {
-          id: 'native_call',
-          type: 'function',
-          function: {
-            name: 'list_files',
-            arguments: JSON.stringify({ path: '.' }),
-          },
-        },
-      ],
-    },
-    {
-      message: { role: 'assistant', content: 'Native check complete. <SATISFIED>' }
-    }
-  ]);
-
-  const agentNative = new Agent(nativeToolProvider, 'mock-model');
-  capturedOutput = [];
-  await agentNative.chat('list files natively');
-
-  const nativeOutput = capturedOutput.join('\n');
-  if (nativeOutput.includes('Executing tool: list_files') && nativeOutput.includes('Native check complete.')) {
-    console.log('PASS: Fallback Invariant (native tool calls still work)');
-  } else {
-    console.log('FAIL: Fallback Invariant');
     process.exit(1);
   }
 

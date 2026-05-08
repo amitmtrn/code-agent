@@ -10,7 +10,7 @@ export class Agent {
     private model: string,
     private deepThinking: boolean = false,
     private maxThinkingLoops: number = 5,
-    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block.
+    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
 
 ### Mandatory JSON Schema:
 {
@@ -96,26 +96,54 @@ ${toolList}`;
   private parseJsonResponse(content: string): any {
     if (!content || typeof content !== 'string') return null;
 
+    if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(content)) {
+      console.warn(`Rejected content containing XML tags: ${content.slice(0, 100)}...`);
+      return null;
+    }
+
     try {
       // Find the first occurrence of { and the last occurrence of }
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      const jsonStr = jsonMatch[0];
-      return JSON.parse(jsonStr);
-    } catch (e) {
-      // Basic repair attempt: try to fix missing closing braces
-      try {
-        let repaired = content.trim();
-        if (!repaired.endsWith('}')) {
-          repaired += '}';
-          const secondMatch = repaired.match(/\{[\s\S]*\}/);
-          if (secondMatch) return JSON.parse(secondMatch[0]);
+      let jsonMatch = content.match(/\{[\s\S]*\}/);
+      let jsonStr = '';
+      
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      } else {
+        // If no closing brace, try to find the first opening brace and take everything after it
+        const startMatch = content.match(/\{[\s\S]*/);
+        if (startMatch) {
+          jsonStr = startMatch[0];
         }
-      } catch (innerE) {
-        // Fallback failed
+      }
+
+      if (!jsonStr) return null;
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch (e) {
+        // Basic repair attempt: try to fix missing closing braces
+        let repaired = jsonStr.trim();
+        while (repaired.length > 0 && !repaired.endsWith('}')) {
+          repaired += '}';
+          try {
+            parsed = JSON.parse(repaired);
+            break;
+          } catch (innerE) {
+            // Keep adding braces until it works or we give up
+            if (repaired.length > jsonStr.length + 10) throw innerE; 
+          }
+        }
+        if (!parsed) throw e;
       }
       
+      if (typeof parsed === 'object' && parsed !== null) {
+        if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
+          return parsed;
+        }
+      }
+      return null;
+    } catch (e) {
       console.warn(`Failed to parse JSON response: ${content.slice(0, 100)}...`);
       return null;
     }
@@ -146,8 +174,12 @@ ${toolList}`;
       if (!jsonResponse) {
         console.error(chalk.red('Error: Model failed to provide a valid JSON response.'));
         this.messages.push({
+          role: 'assistant',
+          content: content
+        });
+        this.messages.push({
           role: 'user',
-          content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema.'
+          content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema. DO NOT use XML tags like <tool_call>.'
         });
         thinkingCount++;
         if (thinkingCount >= this.maxThinkingLoops) break;
