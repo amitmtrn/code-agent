@@ -10,7 +10,9 @@ export class Agent {
     private model: string,
     private deepThinking: boolean = false,
     private maxThinkingLoops: number = 5,
-    systemPrompt: string = `You are an expert autonomous AI agent. You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
+    systemPrompt: string = `You are an expert autonomous AI agent. You are part of the 'code-agent' project, which is a clone of Claude Code that supports multi-provider model execution via Replicate and Ollama.
+
+You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
 
 ### Mandatory JSON Schema:
 {
@@ -96,21 +98,39 @@ ${toolList}`;
   private parseJsonResponse(content: string): any {
     if (!content || typeof content !== 'string') return null;
 
-    if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(content)) {
-      console.warn(`Rejected content containing XML tags: ${content.slice(0, 100)}...`);
-      return null;
+    // Remove code blocks if present
+    let cleanedContent = content.trim();
+    if (cleanedContent.startsWith('```')) {
+      cleanedContent = cleanedContent.replace(/^```[a-z]*\n/i, '').replace(/\n```$/i, '');
+    }
+
+    if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(cleanedContent)) {
+      // Only reject if it looks like an XML tag that IS NOT inside a JSON string
+      const firstBrace = cleanedContent.indexOf('{');
+      const lastBrace = cleanedContent.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        const prefix = cleanedContent.substring(0, firstBrace);
+        const suffix = cleanedContent.substring(lastBrace + 1);
+        if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(prefix) || /<[a-zA-Z]+[0-9]*\b[^>]*>/.test(suffix)) {
+          console.warn(`Rejected content containing XML tags outside JSON: ${cleanedContent.slice(0, 100)}...`);
+          return null;
+        }
+      } else if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(cleanedContent)) {
+        console.warn(`Rejected content containing XML tags: ${cleanedContent.slice(0, 100)}...`);
+        return null;
+      }
     }
 
     try {
       // Find the first occurrence of { and the last occurrence of }
-      let jsonMatch = content.match(/\{[\s\S]*\}/);
+      let jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
       let jsonStr = '';
       
       if (jsonMatch) {
         jsonStr = jsonMatch[0];
       } else {
         // If no closing brace, try to find the first opening brace and take everything after it
-        const startMatch = content.match(/\{[\s\S]*/);
+        const startMatch = cleanedContent.match(/\{[\s\S]*/);
         if (startMatch) {
           jsonStr = startMatch[0];
         }
@@ -122,16 +142,24 @@ ${toolList}`;
       try {
         parsed = JSON.parse(jsonStr);
       } catch (e) {
-        // Basic repair attempt: try to fix missing closing braces
-        let repaired = jsonStr.trim();
-        while (repaired.length > 0 && !repaired.endsWith('}')) {
-          repaired += '}';
-          try {
-            parsed = JSON.parse(repaired);
-            break;
-          } catch (innerE) {
-            // Keep adding braces until it works or we give up
-            if (repaired.length > jsonStr.length + 10) throw innerE; 
+        // Try to handle literal newlines in strings before repair
+        try {
+          // Replace literal newlines inside double quotes with \n
+          const escapedStr = jsonStr.replace(/"([^"]*)"/g, (match, p1) => {
+            return '"' + p1.replace(/\n/g, '\\n') + '"';
+          });
+          parsed = JSON.parse(escapedStr);
+        } catch (innerE) {
+          // Basic repair attempt: try to fix missing closing braces
+          let repaired = jsonStr.trim();
+          while (repaired.length > 0 && !repaired.endsWith('}')) {
+            repaired += '}';
+            try {
+              parsed = JSON.parse(repaired);
+              break;
+            } catch (retryE) {
+              if (repaired.length > jsonStr.length + 10) throw retryE; 
+            }
           }
         }
         if (!parsed) throw e;
@@ -158,6 +186,12 @@ ${toolList}`;
     let lastContent = '';
 
     while (loop) {
+      thinkingCount++;
+      if (thinkingCount > this.maxThinkingLoops * 2) {
+        console.log(chalk.red('\nMaximum turns reached. Ending loop.'));
+        break;
+      }
+
       console.log(chalk.blue('Thinking...'));
       
       const response = await this.provider.chat({
@@ -181,8 +215,7 @@ ${toolList}`;
           role: 'user',
           content: 'INVALID FORMAT. You MUST respond with a valid JSON block following the mandatory schema. DO NOT use XML tags like <tool_call>.'
         });
-        thinkingCount++;
-        if (thinkingCount >= this.maxThinkingLoops) break;
+        if (thinkingCount >= this.maxThinkingLoops * 2) break;
         continue;
       }
 
@@ -273,10 +306,9 @@ ${toolList}`;
         // No tool calls, check if we should reflect or if we are satisfied
         if (isSatisfied) {
           loop = false;
-        } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops) {
+        } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops * 2) {
           // Trigger reflection
-          thinkingCount++;
-          console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops}...)`));
+          console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops * 2}...)`));
           this.messages.push({
             role: 'user',
             content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that you have fully answered the user request with EMPIRICAL EVIDENCE? You are not yet satisfied and have NOT called a tool in this turn. You MUST use a tool to investigate the project or provide a more complete answer. Hallucinating information without tool use is strictly forbidden.'

@@ -37,21 +37,41 @@ export class OllamaProvider implements Provider {
   async chat(options: ChatOptions): Promise<ChatResponse> {
     await this.ensureModelExists(options.model);
 
-    const messages = options.messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      thinking: msg.reasoning,
-      reasoning_content: msg.reasoning,
-      tool_call_id: msg.tool_call_id,
-      name: msg.name,
-      tool_calls: msg.tool_calls?.map(tc => ({
-        type: 'function',
-        function: {
-          name: tc.function.name,
-          arguments: JSON.parse(tc.function.arguments),
-        },
-      })),
-    })) as any;
+    const messages = options.messages.map(msg => {
+      const role = msg.role === 'tool' ? 'user' : msg.role;
+      const content = msg.role === 'tool' 
+        ? `Tool result for ${msg.name}:\n${msg.content}`
+        : msg.content;
+
+      const mappedMsg: any = {
+        role,
+        content,
+      };
+
+      if (msg.reasoning) {
+        mappedMsg.thinking = msg.reasoning;
+        mappedMsg.reasoning_content = msg.reasoning;
+      }
+
+      // Only include native tool call info if tools are enabled
+      if (options.tools) {
+        if (msg.tool_calls) {
+          mappedMsg.tool_calls = msg.tool_calls.map(tc => ({
+            type: 'function',
+            function: {
+              name: tc.function.name,
+              arguments: JSON.parse(tc.function.arguments),
+            },
+          }));
+        }
+        if (msg.tool_call_id) {
+          mappedMsg.tool_call_id = msg.tool_call_id;
+          mappedMsg.name = msg.name;
+        }
+      }
+
+      return mappedMsg;
+    }) as any;
 
     const tools = options.tools?.map(tool => ({
       type: 'function',
