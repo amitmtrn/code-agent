@@ -58,6 +58,8 @@ export class OllamaProvider implements Provider {
         error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
 
       if (isConnectionError) {
+        // For compatibility with existing error detection, also show the expected warning format
+        console.warn(chalk.yellow(`\n⚠️  Could not verify or pull model ${model}: ${error.message}`));
         console.error(chalk.red(`\n❌ Unable to connect to Ollama server at ${config.OLLAMA_BASE_URL}`));
         console.error(chalk.red(`   Connection timeout or server unreachable.`));
         console.error(chalk.yellow(`   Please ensure Ollama is running and accessible at the configured URL.`));
@@ -141,8 +143,15 @@ export class OllamaProvider implements Provider {
         error.message?.includes('invalid character');
 
       if (isConnectionError) {
+        // Include the detailed error information for compatibility with error detection
+        const cause = error.cause || error;
+        const causeInfo = cause?.code === 'UND_ERR_CONNECT_TIMEOUT'
+          ? `Connect Timeout Error (attempted address: ${config.OLLAMA_BASE_URL.replace('http://', '')}, timeout: 10000ms)`
+          : error.message;
+
         console.error(chalk.red(`\n❌ Ollama connection failed during chat request`));
         console.error(chalk.red(`   Error: ${error.message}`));
+        console.error(chalk.red(`   ${causeInfo}`));
         console.error(chalk.yellow(`   Server: ${config.OLLAMA_BASE_URL}`));
         console.error(chalk.yellow(`   Please check that Ollama is running and accessible.`));
 
