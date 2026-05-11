@@ -220,6 +220,21 @@ ${toolList}`;
         continue;
       }
 
+      // Check for connection error responses from providers
+      const isConnectionError = jsonResponse.thought?.includes('Connection to Ollama server failed') ||
+                               jsonResponse.message?.includes('unable to connect to the Ollama server') ||
+                               jsonResponse.message?.includes("I'm unable to connect to the Ollama server");
+
+      if (isConnectionError) {
+        console.log(chalk.red('\n❌ Connection error detected.'));
+        if (jsonResponse.message) {
+          console.log(chalk.yellow(`\nA: ${jsonResponse.message}`));
+        }
+        // End the current chat loop instead of terminating the entire process
+        loop = false;
+        break;
+      }
+
       // Map JSON fields to internal message structure
       const reasoning = jsonResponse.thought || message.reasoning;
       const displayContent = jsonResponse.message || '';
