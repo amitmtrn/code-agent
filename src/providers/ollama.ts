@@ -61,7 +61,10 @@ export class OllamaProvider implements Provider {
         console.error(chalk.red(`\n❌ Unable to connect to Ollama server at ${config.OLLAMA_BASE_URL}`));
         console.error(chalk.red(`   Connection timeout or server unreachable.`));
         console.error(chalk.yellow(`   Please ensure Ollama is running and accessible at the configured URL.`));
-        throw new Error(`Ollama connection failed: ${error.message}`);
+        console.error(chalk.yellow(`   Continuing without model verification - chat requests may also fail.`));
+        // Don't throw an error - just warn and continue
+        // The actual chat request will handle connection errors appropriately
+        return;
       } else {
         console.warn(chalk.yellow(`\n⚠️  Could not verify or pull model ${model}: ${error.message}`));
         // Continue anyway, as the chat might still work if the check failed due to other reasons
@@ -142,7 +145,22 @@ export class OllamaProvider implements Provider {
         console.error(chalk.red(`   Error: ${error.message}`));
         console.error(chalk.yellow(`   Server: ${config.OLLAMA_BASE_URL}`));
         console.error(chalk.yellow(`   Please check that Ollama is running and accessible.`));
-        throw new Error(`Ollama connection failed: ${error.message}`);
+
+        // Return a helpful error message in the expected JSON format
+        const errorMessage = `I'm unable to connect to the Ollama server at ${config.OLLAMA_BASE_URL}. The server appears to be unreachable or not running.\n\nPossible solutions:\n1. Make sure Ollama is installed and running\n2. Check that the server address is correct\n3. Verify network connectivity\n4. Try using a different provider with: --provider replicate\n\nOriginal error: ${error.message}`;
+
+        return {
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              "thought": "Connection to Ollama server failed. I need to inform the user about the connection issue and provide helpful solutions.",
+              "tool_call": null,
+              "message": errorMessage,
+              "satisfied": true
+            }),
+            reasoning: 'Connection to Ollama server failed',
+          },
+        };
       } else if (isToolError) {
         const toolsUsed = tools ? 'with tools' : 'without tools';
         console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with tool parsing (${toolsUsed}). Falling back to JSON parsing...`));
