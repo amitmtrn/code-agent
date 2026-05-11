@@ -183,6 +183,7 @@ ${toolList}`;
     let loop = true;
     let thinkingCount = 0;
     let consecutiveNoToolCalls = 0;
+    let totalToolCalls = 0;
     let lastContent = '';
 
     while (loop) {
@@ -256,6 +257,7 @@ ${toolList}`;
       }
 
       if (toolCalls && toolCalls.length > 0) {
+        totalToolCalls += toolCalls.length;
         consecutiveNoToolCalls = 0;
         for (const toolCall of toolCalls) {
           console.log(chalk.yellow(`\nExecuting tool: ${toolCall.function.name}`));
@@ -305,7 +307,49 @@ ${toolList}`;
 
         // No tool calls, check if we should reflect or if we are satisfied
         if (isSatisfied) {
-          loop = false;
+          // Check if it's a project-related question being answered without investigation
+          const projectKeywords = ['project', 'code', 'repo', 'repository', 'files', 'structure', 'this', 'about', 'work'];
+          const isProjectQuestion = projectKeywords.some(k => userInput.toLowerCase().includes(k));
+          
+          if (isProjectQuestion && totalToolCalls === 0) {
+            console.log(chalk.yellow('\n(Enforcing empirical investigation...)'));
+            
+            // Force list_files to break the hallucination and ensure mandatory investigation
+            try {
+              const toolName = 'list_files';
+              const toolArgs = '{"path":"."}';
+              const result = await registry.execute(toolName, toolArgs);
+              totalToolCalls++;
+              
+              const toolCallId = `mandatory_${Date.now()}`;
+              // Update the assistant message to include the tool call so history is consistent
+              assistantMessage.tool_calls = [{
+                id: toolCallId,
+                type: 'function',
+                function: { name: toolName, arguments: toolArgs }
+              }];
+
+              this.messages.push({
+                role: 'tool',
+                content: result,
+                tool_call_id: toolCallId,
+                name: toolName,
+              });
+              
+              this.messages.push({
+                role: 'user',
+                content: 'I have automatically executed list_files for you because you are required to investigate the project structure before answering. Please use this information to provide a factual response based on the actual files.'
+              });
+              
+              // Reset consecutive turns to allow the model to react to the new data
+              consecutiveNoToolCalls = 0;
+            } catch (e: any) {
+              console.error(chalk.red(`Failed to enforce investigation: ${e.message}`));
+              loop = false;
+            }
+          } else {
+            loop = false;
+          }
         } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops * 2) {
           // Trigger reflection
           console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops * 2}...)`));
