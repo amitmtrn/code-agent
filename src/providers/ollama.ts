@@ -8,7 +8,28 @@ export class OllamaProvider implements Provider {
   private verifiedModels: Set<string> = new Set();
 
   constructor() {
-    this.client = new Ollama({ host: config.OLLAMA_BASE_URL });
+    // Create a custom fetch with timeout
+    const fetchWithTimeout = async (url: RequestInfo | URL, options?: RequestInit) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
+
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        return response;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    };
+
+    this.client = new Ollama({
+      host: config.OLLAMA_BASE_URL,
+      fetch: fetchWithTimeout,
+    });
   }
 
   private async ensureModelExists(model: string) {
@@ -16,12 +37,12 @@ export class OllamaProvider implements Provider {
 
     try {
       const { models } = await this.client.list();
-      const exists = models.some(m => 
-        m.name === model || 
-        m.name === `${model}:latest` || 
+      const exists = models.some(m =>
+        m.name === model ||
+        m.name === `${model}:latest` ||
         m.name.split(':')[0] === model
       );
-      
+
       if (!exists) {
         console.log(chalk.blue(`\n📥 Model ${model} not found locally. Pulling...`));
         await this.client.pull({ model });
@@ -29,8 +50,22 @@ export class OllamaProvider implements Provider {
       }
       this.verifiedModels.add(model);
     } catch (error: any) {
-      console.warn(chalk.yellow(`\n⚠️  Could not verify or pull model ${model}: ${error.message}`));
-      // Continue anyway, as the chat might still work if the check failed due to other reasons
+      const isConnectionError =
+        error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        error.code === 'ECONNREFUSED' ||
+        error.message?.includes('fetch failed') ||
+        error.message?.includes('Connect Timeout Error') ||
+        error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
+      if (isConnectionError) {
+        console.error(chalk.red(`\n❌ Unable to connect to Ollama server at ${config.OLLAMA_BASE_URL}`));
+        console.error(chalk.red(`   Connection timeout or server unreachable.`));
+        console.error(chalk.yellow(`   Please ensure Ollama is running and accessible at the configured URL.`));
+        throw new Error(`Ollama connection failed: ${error.message}`);
+      } else {
+        console.warn(chalk.yellow(`\n⚠️  Could not verify or pull model ${model}: ${error.message}`));
+        // Continue anyway, as the chat might still work if the check failed due to other reasons
+      }
     }
   }
 
@@ -90,12 +125,25 @@ export class OllamaProvider implements Provider {
         tools,
       });
     } catch (error: any) {
+      const isConnectionError =
+        error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+        error.code === 'ECONNREFUSED' ||
+        error.message?.includes('fetch failed') ||
+        error.message?.includes('Connect Timeout Error') ||
+        error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
       const isToolError =
         error.message?.includes('does not support tools') ||
         error.message?.includes('error parsing tool call') ||
         error.message?.includes('invalid character');
 
-      if (isToolError) {
+      if (isConnectionError) {
+        console.error(chalk.red(`\n❌ Ollama connection failed during chat request`));
+        console.error(chalk.red(`   Error: ${error.message}`));
+        console.error(chalk.yellow(`   Server: ${config.OLLAMA_BASE_URL}`));
+        console.error(chalk.yellow(`   Please check that Ollama is running and accessible.`));
+        throw new Error(`Ollama connection failed: ${error.message}`);
+      } else if (isToolError) {
         const toolsUsed = tools ? 'with tools' : 'without tools';
         console.warn(chalk.yellow(`\n⚠️  Model ${options.model} had trouble with tool parsing (${toolsUsed}). Falling back to JSON parsing...`));
 
