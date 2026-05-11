@@ -230,7 +230,7 @@ ${toolList}`;
         if (jsonResponse.message) {
           console.log(chalk.yellow(`\nAssistant: ${jsonResponse.message}`));
         }
-        break;
+        process.exit(1);
       }
 
       // Map JSON fields to internal message structure
