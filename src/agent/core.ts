@@ -220,6 +220,18 @@ ${toolList}`;
         continue;
       }
 
+      // Check for connection error responses from providers
+      const isConnectionError = jsonResponse.thought?.includes('Connection to Ollama server failed') ||
+                               jsonResponse.message?.includes('unable to connect to the Ollama server');
+
+      if (isConnectionError) {
+        console.log(chalk.red('\n❌ Connection error detected. Terminating session.'));
+        if (jsonResponse.message) {
+          console.log(chalk.yellow(`\nAssistant: ${jsonResponse.message}`));
+        }
+        break;
+      }
+
       // Map JSON fields to internal message structure
       const reasoning = jsonResponse.thought || message.reasoning;
       const displayContent = jsonResponse.message || '';
