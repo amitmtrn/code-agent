@@ -5,7 +5,12 @@ dotenv.config();
 
 const configSchema = z.object({
   REPLICATE_API_TOKEN: z.string().optional(),
-  OLLAMA_BASE_URL: z.string().default('http://localhost:11434'),
+  OLLAMA_BASE_URL: z.preprocess((val) => {
+    if (typeof val === 'string' && !val.startsWith('http://') && !val.startsWith('https://')) {
+      return `http://${val}`;
+    }
+    return val;
+  }, z.string()).default('http://localhost:11434'),
   DEFAULT_PROVIDER: z.enum(['ollama', 'replicate']).default('ollama'),
   DEFAULT_MODEL: z.string().default('llama3'),
   DEEP_THINKING: z.preprocess((val) => val === 'true', z.boolean()).default(false),
