@@ -19,14 +19,27 @@ const configSchema = z.object({
 
 export type Config = z.infer<typeof configSchema>;
 
+// Function to get fallback Ollama URLs in case the primary one fails
+export function getOllamaFallbackUrls(primaryUrl: string): string[] {
+  const fallbacks = [
+    primaryUrl,
+    'http://localhost:11434',
+    'http://127.0.0.1:11434',
+    'http://host.docker.internal:11434',
+  ];
+
+  // Remove duplicates while preserving order
+  return [...new Set(fallbacks)];
+}
+
 function loadConfig(): Config {
   const result = configSchema.safeParse(process.env);
-  
+
   if (!result.success) {
     console.error('❌ Invalid configuration:', result.error.format());
     process.exit(1);
   }
-  
+
   return result.data;
 }
 
