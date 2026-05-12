@@ -185,12 +185,23 @@ ${toolList}`;
     let consecutiveNoToolCalls = 0;
     let totalToolCalls = 0;
     let lastContent = '';
+    let lastToolActions: { name: string; args: string; result: string }[] = [];
 
     while (loop) {
       thinkingCount++;
       if (thinkingCount > this.maxThinkingLoops * 2) {
         console.log(chalk.red('\nMaximum turns reached. Ending loop.'));
         break;
+      }
+
+      if (lastToolActions.length > 0) {
+        const summary = lastToolActions.map(a => `- Executed tool '${a.name}' with arguments: ${a.args}\n  Result: ${a.result.length > 200 ? a.result.substring(0, 200) + '...' : a.result}`).join('\n');
+        
+        this.messages.push({
+          role: 'user',
+          content: `CONTEXT (Previous Actions):\n${summary}\n\nIMPORTANT: Do not repeat the same failed tool calls. If a tool call returned an error, try a different approach (e.g., list files in the parent directory, check for typos, or use a different tool).`
+        });
+        lastToolActions = [];
       }
 
       console.log(chalk.blue('Thinking...'));
@@ -254,6 +265,45 @@ ${toolList}`;
         }];
       }
 
+      // Repetition check for failed tool calls
+      let isRepetitiveFailure = false;
+      if (toolCalls && toolCalls.length > 0) {
+        for (const tc of toolCalls) {
+          const toolName = tc.function.name;
+          const toolArgs = tc.function.arguments;
+          
+          // Check if this EXACT tool call (name + args) failed previously in this conversation
+          const previouslyFailed = this.messages.some((m, idx) => {
+            if (m.role === 'tool' && m.name === toolName && m.content.toLowerCase().includes('error')) {
+              // Found a tool error for this tool name. Now check if the arguments match the assistant call before it.
+              const assistantMsg = this.messages[idx - 1];
+              if (assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.tool_calls) {
+                return assistantMsg.tool_calls.some(atc => 
+                  atc.function.name === toolName && 
+                  atc.function.arguments === toolArgs
+                );
+              }
+            }
+            return false;
+          });
+
+          if (previouslyFailed) {
+            console.log(chalk.red(`\nRepetitive failed tool call detected: ${toolName}`));
+            this.messages.push({
+              role: 'user',
+              content: `ERROR: You are attempting to repeat the same tool call that already failed: '${toolName}' with arguments ${toolArgs}. DO NOT repeat this mistake. You MUST try a different path (e.g., list files first, check for typos, or use a different tool) or admit you cannot proceed.`
+            });
+            isRepetitiveFailure = true;
+            break;
+          }
+        }
+      }
+
+      if (isRepetitiveFailure) {
+        consecutiveNoToolCalls = 0;
+        continue;
+      }
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: content, // Keep the original JSON for history
@@ -286,6 +336,12 @@ ${toolList}`;
             
             console.log(chalk.cyan('Result:'), result.length > 100 ? result.substring(0, 100) + '...' : result);
 
+            lastToolActions.push({
+              name: toolCall.function.name,
+              args: toolCall.function.arguments,
+              result: result
+            });
+
             this.messages.push({
               role: 'tool',
               content: result,
@@ -294,6 +350,13 @@ ${toolList}`;
             });
           } catch (e: any) {
             console.error(chalk.red(`Tool execution error: ${e.message}`));
+            
+            lastToolActions.push({
+              name: toolCall.function.name,
+              args: toolCall.function.arguments,
+              result: `Error: ${e.message}`
+            });
+
             this.messages.push({
               role: 'tool',
               content: `Error: ${e.message}`,
