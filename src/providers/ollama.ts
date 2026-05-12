@@ -13,7 +13,7 @@ export class OllamaProvider implements Provider {
     // Create a custom fetch with timeout
     this.fetchWithTimeout = async (url: RequestInfo | URL, options?: RequestInit) => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 300 seconds (5 minutes) timeout
 
       try {
         const response = await fetch(url, {
@@ -90,10 +90,12 @@ export class OllamaProvider implements Provider {
       this.client = client;
     } catch (error: any) {
       const isConnectionError =
+        error.name === 'AbortError' ||
         error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
         error.code === 'ECONNREFUSED' ||
         error.message?.includes('fetch failed') ||
         error.message?.includes('Connect Timeout Error') ||
+        error.message?.includes('aborted') ||
         error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
 
       if (isConnectionError) {
@@ -170,10 +172,12 @@ export class OllamaProvider implements Provider {
       });
     } catch (error: any) {
       const isConnectionError =
+        error.name === 'AbortError' ||
         error.code === 'UND_ERR_CONNECT_TIMEOUT' ||
         error.code === 'ECONNREFUSED' ||
         error.message?.includes('fetch failed') ||
         error.message?.includes('Connect Timeout Error') ||
+        error.message?.includes('aborted') ||
         error.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
 
       const isToolError =
@@ -209,7 +213,11 @@ export class OllamaProvider implements Provider {
           console.error(chalk.yellow(`   Please check that Ollama is running and accessible.`));
 
           // Return a helpful error message in the expected JSON format
-          const errorMessage = `I'm unable to connect to the Ollama server at ${this.currentUrl}. The server appears to be unreachable or not running.\n\nPossible solutions:\n1. Make sure Ollama is installed and running\n2. Check that the server address is correct\n3. Verify network connectivity\n4. Try using a different provider with: --provider replicate\n\nOriginal error: ${error.message}`;
+          let errorMessage = `I'm unable to connect to the Ollama server at ${this.currentUrl}. The server appears to be unreachable or not running.\n\nPossible solutions:\n1. Make sure Ollama is installed and running\n2. Check that the server address is correct\n3. Verify network connectivity\n4. Try using a different provider with: --provider replicate\n\nOriginal error: ${error.message}`;
+
+          if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            errorMessage = `The request to Ollama at ${this.currentUrl} timed out. The model might be too slow for your hardware or is generating a very long response.\n\nPossible solutions:\n1. Use a smaller or more efficient model\n2. Check if your hardware (CPU/GPU) is being throttled\n3. Try using a different provider with: --provider replicate\n\nOriginal error: ${error.message}`;
+          }
 
           return {
             message: {
