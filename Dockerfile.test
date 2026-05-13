@@ -1,7 +1,0 @@
-FROM node:20-slim
-WORKDIR /workspace
-COPY package*.json ./
-RUN npm install
-COPY . .
-ENV PATH="/workspace/node_modules/.bin:$PATH"
-RUN ln -sf /workspace/node_modules/.bin/ts-node /usr/local/bin/ts-node
