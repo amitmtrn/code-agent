@@ -91,21 +91,27 @@ class MockProvider implements Provider {
     this.turn++;
     if (this.turn === 1) {
       return {
-        message: { role: 'assistant', content: 'Let me write a file.' },
-        toolCalls: [
-          {
-            id: 'call_1',
-            type: 'function',
-            function: {
-              name: 'write_file',
-              arguments: JSON.stringify({ path: 'test-temp/loop.txt', content: 'loop content' }),
-            },
-          },
-        ],
+        message: { 
+          role: 'assistant', 
+          content: JSON.stringify({
+            thought: "I will write a file to test the loop.",
+            tool_call: { name: 'write_file', arguments: { path: 'test-temp/loop.txt', content: 'loop content' } },
+            message: "Writing the file now.",
+            satisfied: false
+          })
+        },
       };
     } else {
       return {
-        message: { role: 'assistant', content: 'Done writing.' },
+        message: { 
+          role: 'assistant', 
+          content: JSON.stringify({
+            thought: "The file has been written. I am done.",
+            tool_call: null,
+            message: "I have finished writing the file.",
+            satisfied: true
+          })
+        },
       };
     }
   }

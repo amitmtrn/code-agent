@@ -3,11 +3,18 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+export function normalizeUrl(url: string): string {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return `http://${url}`;
+  }
+  return url;
+}
+
 const configSchema = z.object({
   REPLICATE_API_TOKEN: z.string().optional(),
   OLLAMA_BASE_URL: z.preprocess((val) => {
-    if (typeof val === 'string' && !val.startsWith('http://') && !val.startsWith('https://')) {
-      return `http://${val}`;
+    if (typeof val === 'string') {
+      return normalizeUrl(val);
     }
     return val;
   }, z.string()).default('http://localhost:11434'),
