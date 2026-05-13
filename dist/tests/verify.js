@@ -35,9 +35,9 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
-const fs_1 = require("../tools/fs");
-const registry_1 = require("../tools/registry");
-const core_1 = require("../agent/core");
+const fs_1 = require("../src/tools/fs");
+const registry_1 = require("../src/tools/registry");
+const core_1 = require("../src/agent/core");
 async function testTools() {
     console.log('--- Testing Tools ---');
     const testDir = path.join(process.cwd(), 'test-temp');

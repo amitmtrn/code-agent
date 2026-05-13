@@ -1,15 +1,19 @@
 import { Ollama } from 'ollama';
 import { Provider, ChatOptions, ChatResponse, Message } from './types';
-import { config, getOllamaFallbackUrls } from '../config';
+import { config, getOllamaFallbackUrls, normalizeUrl } from '../config';
 import chalk from 'chalk';
 
 export class OllamaProvider implements Provider {
   private client: Ollama;
   private verifiedModels: Set<string> = new Set();
-  private currentUrl: string = config.OLLAMA_BASE_URL;
+  private primaryUrl: string;
+  private currentUrl: string;
   private fetchWithTimeout: (url: RequestInfo | URL, options?: RequestInit) => Promise<Response>;
 
-  constructor() {
+  constructor(host?: string) {
+    this.primaryUrl = host ? normalizeUrl(host) : config.OLLAMA_BASE_URL;
+    this.currentUrl = this.primaryUrl;
+
     // Create a custom fetch with timeout
     this.fetchWithTimeout = async (url: RequestInfo | URL, options?: RequestInit) => {
       const controller = new AbortController();
@@ -36,7 +40,7 @@ export class OllamaProvider implements Provider {
 
   // Try to connect using fallback URLs if the primary one fails
   private async createClientWithFallback(): Promise<Ollama> {
-    const urls = getOllamaFallbackUrls(config.OLLAMA_BASE_URL);
+    const urls = getOllamaFallbackUrls(this.primaryUrl);
 
     for (const url of urls) {
       try {

@@ -1,13 +1,17 @@
 {
-  "name": "code-agent",
+  "name": "codagent",
   "version": "0.1.0",
   "description": "A clone of Claude Code using Replicate and Ollama models",
   "main": "dist/index.js",
   "bin": {
-    "code-agent": "dist/index.js"
+    "codagent": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "ts-node tests/verify.ts",

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { Command } from 'commander';
 import { config } from './config';
 import { OllamaProvider } from './providers/ollama';
@@ -18,18 +19,19 @@ registry.register(shellTool);
 const program = new Command();
 
 program
-  .name('code-agent')
+  .name('codagent')
   .description('A clone of Claude Code using Replicate and Ollama models')
   .version('0.1.0')
   .option('-p, --provider <provider>', 'LLM provider (ollama or replicate)', config.DEFAULT_PROVIDER)
   .option('-m, --model <model>', 'Model name', config.DEFAULT_MODEL)
+  .option('--host <host>', 'Ollama host URL')
   .option('-d, --deep-thinking', 'Enable deep thinking (self-reflection)', config.DEEP_THINKING)
   .argument('[prompt]', 'Initial prompt for the agent')
   .action(async (initialPrompt, options) => {
     let provider;
     
     if (options.provider === 'ollama') {
-      provider = new OllamaProvider();
+      provider = new OllamaProvider(options.host);
     } else if (options.provider === 'replicate') {
       provider = new ReplicateProvider();
     } else {
