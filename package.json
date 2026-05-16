@@ -15,7 +15,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "ts-node tests/verify.ts",
-    "lint": "eslint src --ext .ts"
+    "lint": "eslint src --ext .ts",
+    "deploy": "bash deploy.sh"
   },
   "dependencies": {
     "axios": "^1.6.7",

@@ -23,3 +23,8 @@ The `code-agent` is designed with a provider-agnostic core that interacts with m
   - `write_file`: Save content to disk.
   - `list_files`: Discover files in the workspace.
   - `execute_shell`: Run terminal commands (with user confirmation).
+
+## Deployment
+This project includes an automated deployment system.
+- **CLI**: Run \`npm run deploy\` to build and package the application.
+- **Visual Dashboard**: Open [widget.html](../widget.html) in your browser for a graphical deployment interface.
