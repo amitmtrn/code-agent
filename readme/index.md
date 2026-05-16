@@ -2,6 +2,8 @@
 
 A clone of Claude Code that supports multi-provider model execution via Replicate and Ollama.
 
+Refer to the main [README.md](../README.md) for quick start and general overview.
+
 ## Contents
 
 - [General Setup Guide](./setup.md)
