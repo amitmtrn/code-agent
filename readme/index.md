@@ -10,6 +10,10 @@ Refer to the main [README.md](../README.md) for quick start and general overview
 - [Ollama Setup (Local Models)](./ollama-setup.md)
 - [Replicate Setup (Cloud Models)](./replicate-setup.md)
 
+## Features
+
+- [Plan Mode](./plan-mode.md) — read-only investigation with an approval gate before any change runs.
+
 ## Architecture Overview
 
 The `code-agent` is designed with a provider-agnostic core that interacts with models through a standardized `Provider` interface. It features an autonomous loop that can call tools registered in the `ToolRegistry`.

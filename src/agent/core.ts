@@ -1,6 +1,50 @@
 import { Provider, Message, ToolCall } from '../providers/types';
 import { registry } from '../tools/registry';
+import { parseJsonResponse } from './parse';
 import chalk from 'chalk';
+
+const PLAN_MODE_ADDENDUM = `
+
+### PLAN MODE ACTIVE
+You are in PLAN MODE. Only read-only tools (list_files, read_file) are available. write_file and execute_shell are blocked.
+
+## Hard requirement: investigate before planning
+A plan that does not reference specific files in this project is NOT a plan — it is a generic template, and will be rejected. Before setting satisfied:true you MUST:
+1. Call list_files on '.' to see the project layout.
+2. Read package.json (or the equivalent manifest) to know what kind of project this is, what dependencies exist, what scripts are defined.
+3. Read README.md and any obviously relevant source files to understand existing structure.
+4. Only AFTER 2-5 read-only tool calls should you produce the plan.
+
+If the user's request can already be satisfied by code that exists, your plan should say so and propose extending it — not propose building from scratch.
+
+## Required plan format
+When satisfied:true, the 'message' field MUST be a markdown document with these sections, in this order:
+
+\`\`\`
+## Context
+2-4 sentences: what the user asked for, and what you found during investigation that shapes the approach.
+
+## Approach
+A short paragraph describing the chosen approach and why (one main tradeoff if relevant).
+
+## Files to modify
+- \`path/to/file.ts\` — what changes and why. Reference real symbols/functions you saw during investigation.
+- \`path/to/other.ts\` — what changes and why.
+(One bullet per file. Use real paths from this project, not placeholder paths.)
+
+## New files
+- \`path/to/new.ts\` — purpose and rough contents (or "none" if nothing new).
+
+## Dependencies
+Any new packages to install (or "none").
+
+## Verification
+Concrete commands or steps the user can run to confirm it works end-to-end. Include actual commands, not vague descriptions.
+\`\`\`
+
+A plan with placeholder file paths, generic phrases like "create a file to store tasks", or no references to actual project files is unacceptable. If you don't know enough to fill in real paths, you haven't investigated enough — keep reading.
+
+The user will review your plan and either approve it (you exit plan mode and execute) or ask for revisions. Do not attempt to execute yourself.`;
 
 export class Agent {
   private messages: Message[] = [];
@@ -10,171 +54,100 @@ export class Agent {
     private model: string,
     private deepThinking: boolean = false,
     private maxThinkingLoops: number = 5,
-    systemPrompt: string = `You are an expert autonomous AI agent. You are part of the 'code-agent' project, which is a clone of Claude Code that supports multi-provider model execution via Replicate and Ollama.
+    private planMode: boolean = false,
+    systemPrompt: string = `You are a concise, capable coding assistant. Use tools to gather facts before answering questions about the current project — never hallucinate file structure or contents.
 
 You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
 
 ### Mandatory JSON Schema:
 {
-  "thought": "your internal reasoning and plan",
+  "thought": "brief internal note about what you're doing next",
   "tool_call": { "name": "tool_name", "arguments": { "arg1": "value1" } } | null,
   "message": "your user-facing response",
   "satisfied": true | false
 }
 
-### Workflow:
-1. **Understand**: Analyze the user's request. What is the core goal?
-2. **Investigate**: If the request requires information about the current project, environment, or files, you MUST use tools to gather facts. NEVER rely on assumptions or hallucinated file structures.
-3. **Think & Analyze**: Evaluate the findings from your investigation. Do you have enough information to satisfy the request?
-4. **Respond**: Communicate your findings or ask for clarification if needed.
+### Field rules:
+- **thought**: One short sentence. Not a multi-step plan.
+- **tool_call**: Use a tool when you need data you don't already have. Null otherwise.
+- **message**: While investigating, keep it to one short sentence stating what you're checking ("Reading the README."). When satisfied:true, this is the final answer — it MUST directly answer the user's ORIGINAL question, not summarize the last file you happened to read. Aim for 2-4 sentences unless detail was explicitly requested.
+- **satisfied**: true only when the message fully answers the original question. false while still gathering info.
 
-### Critical Rules:
-- **No Hallucinations**: NEVER assume you know the project's structure or content. If you haven't called 'list_files', you know nothing about the current directory.
-- **Mandatory Investigation**: For any question about "this project", "the code", or "how it works", you MUST perform at least one tool call to investigate.
-- **Documentation First**: When investigating a project, look for README files, package manifests (package.json, Cargo.toml), and documentation folders first.
+### How to investigate a project:
+1. Start with 'list_files' on '.' to see what exists.
+2. Read the README first (README.md, readme/index.md) — it usually contains the answer to "what is this project."
+3. Check package.json / manifest files for name, description, dependencies.
+4. Only dive into source files when the question is specifically about implementation, not when it's a general overview.
 
-### Guidelines:
-1. **Thought**: Explain your progress through the 4-step workflow (Understand, Investigate, Think, Respond).
-2. **Tool Call**: Use a tool if you need to gather data. Set to null if no tool is needed.
-3. **Message**: Your response to the user. This can be empty if you are only calling a tool.
-4. **Satisfied**: Set to true ONLY when you have fully answered the user's request with high confidence. For project-related tasks, high confidence REQUIRES empirical verification.
-5. **Empirical Verification**: You MUST use 'list_files' and 'read_file' to understand a project before answering questions about it. Hallucinating files or structure is a critical failure.
+Do not chain tool calls beyond what the question requires. If the README answered "what is this project about", stop and answer — don't keep reading config files.
 
-### Few-Shot Examples:
+### Example: project overview question
 
-**Example 1: Project investigation**
 User: "what is this project about?"
-Response:
+
+Turn 1:
 {
-  "thought": "UNDERSTAND: The user wants an overview of the project. INVESTIGATE: I don't know the project structure yet. I must list the files to identify key documentation like README or package.json.",
+  "thought": "Need to see project layout first.",
   "tool_call": { "name": "list_files", "arguments": { "path": "." } },
-  "message": "I'll start by listing the files in the project to understand its structure.",
+  "message": "Checking the project layout.",
   "satisfied": false
 }
 
-**Example 2: Following up after list_files**
-User: "I've listed the files and I see a 'readme/' folder. What's in it?"
-Response:
+Turn 2 (after seeing README.md in the listing):
 {
-  "thought": "UNDERSTAND: The user wants to know the contents of the 'readme/' folder. INVESTIGATE: I will list the files in that specific directory.",
-  "tool_call": { "name": "list_files", "arguments": { "path": "readme" } },
-  "message": "Checking the 'readme/' folder for documentation.",
+  "thought": "README will describe the project.",
+  "tool_call": { "name": "read_file", "arguments": { "path": "README.md" } },
+  "message": "Reading the README.",
   "satisfied": false
 }
 
-**Example 3: Deep Investigation**
-User: "What does the config system do?"
-Response:
+Turn 3 (after reading README — answer the ORIGINAL question):
 {
-  "thought": "UNDERSTAND: User wants to know about the config system. INVESTIGATE: I see src/config.ts in the file list. I need to read its content to understand how it works.",
-  "tool_call": { "name": "read_file", "arguments": { "path": "src/config.ts" } },
-  "message": "I'm reading the config file to explain how it works.",
-  "satisfied": false
-}
-
-**Example 4: Final response**
-User: "What's 2+2?"
-Response:
-{
-  "thought": "UNDERSTAND: Simple math. No investigation needed. THINK: 2+2=4. RESPOND: Provide answer.",
+  "thought": "Have enough to answer.",
   "tool_call": null,
-  "message": "2 + 2 is 4.",
+  "message": "Codagent is a CLI coding agent inspired by Claude Code. It supports multiple model providers (Ollama for local models, Replicate for cloud models) and ships built-in tools for reading/writing files and running shell commands. It also has an optional deep-thinking mode for self-reflection loops.",
   "satisfied": true
 }
 
-When greeted or asked general questions, follow the JSON format and respond conversationally in the 'message' field.`
+### Example: simple question, no tools needed
+
+User: "What's 2+2?"
+{
+  "thought": "Arithmetic.",
+  "tool_call": null,
+  "message": "4.",
+  "satisfied": true
+}`
   ) {
-    const toolDefinitions = registry.getDefinitions();
+    const toolDefinitions = registry.getDefinitions({ readOnlyOnly: this.planMode });
     const toolList = toolDefinitions.map(t => `- ${t.name}: ${t.description}. Parameters: ${JSON.stringify(t.parameters)}`).join('\n');
-    
+
     const toolInstructions = `
 
 # Available Tools
 ${toolList}`;
 
-    this.messages.push({ role: 'system', content: systemPrompt + toolInstructions });
+    const pwdContext = `
+
+# Working Directory
+pwd: ${process.cwd()}
+All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file' with path 'README.md') resolve against this directory. This is the project the user is asking about — investigate THIS directory, not any other.`;
+
+    const finalPrompt = systemPrompt + (this.planMode ? PLAN_MODE_ADDENDUM : '') + pwdContext + toolInstructions;
+    this.messages.push({ role: 'system', content: finalPrompt });
   }
 
-  private parseJsonResponse(content: string): any {
-    if (!content || typeof content !== 'string') return null;
+  isInPlanMode(): boolean {
+    return this.planMode;
+  }
 
-    // Remove code blocks if present
-    let cleanedContent = content.trim();
-    if (cleanedContent.startsWith('```')) {
-      cleanedContent = cleanedContent.replace(/^```[a-z]*\n/i, '').replace(/\n```$/i, '');
-    }
-
-    if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(cleanedContent)) {
-      // Only reject if it looks like an XML tag that IS NOT inside a JSON string
-      const firstBrace = cleanedContent.indexOf('{');
-      const lastBrace = cleanedContent.lastIndexOf('}');
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        const prefix = cleanedContent.substring(0, firstBrace);
-        const suffix = cleanedContent.substring(lastBrace + 1);
-        if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(prefix) || /<[a-zA-Z]+[0-9]*\b[^>]*>/.test(suffix)) {
-          console.warn(`Rejected content containing XML tags outside JSON: ${cleanedContent.slice(0, 100)}...`);
-          return null;
-        }
-      } else if (/<[a-zA-Z]+[0-9]*\b[^>]*>/.test(cleanedContent)) {
-        console.warn(`Rejected content containing XML tags: ${cleanedContent.slice(0, 100)}...`);
-        return null;
-      }
-    }
-
-    try {
-      // Find the first occurrence of { and the last occurrence of }
-      let jsonMatch = cleanedContent.match(/\{[\s\S]*\}/);
-      let jsonStr = '';
-      
-      if (jsonMatch) {
-        jsonStr = jsonMatch[0];
-      } else {
-        // If no closing brace, try to find the first opening brace and take everything after it
-        const startMatch = cleanedContent.match(/\{[\s\S]*/);
-        if (startMatch) {
-          jsonStr = startMatch[0];
-        }
-      }
-
-      if (!jsonStr) return null;
-
-      let parsed;
-      try {
-        parsed = JSON.parse(jsonStr);
-      } catch (e) {
-        // Try to handle literal newlines in strings before repair
-        try {
-          // Replace literal newlines inside double quotes with \n
-          const escapedStr = jsonStr.replace(/"([^"]*)"/g, (match, p1) => {
-            return '"' + p1.replace(/\n/g, '\\n') + '"';
-          });
-          parsed = JSON.parse(escapedStr);
-        } catch (innerE) {
-          // Basic repair attempt: try to fix missing closing braces
-          let repaired = jsonStr.trim();
-          while (repaired.length > 0 && !repaired.endsWith('}')) {
-            repaired += '}';
-            try {
-              parsed = JSON.parse(repaired);
-              break;
-            } catch (retryE) {
-              if (repaired.length > jsonStr.length + 10) throw retryE; 
-            }
-          }
-        }
-        if (!parsed) throw e;
-      }
-      
-      if (typeof parsed === 'object' && parsed !== null) {
-        if ('thought' in parsed || 'tool_call' in parsed || 'message' in parsed || 'satisfied' in parsed) {
-          return parsed;
-        }
-      }
-      return null;
-    } catch (e) {
-      console.warn(`Failed to parse JSON response: ${content.slice(0, 100)}...`);
-      return null;
-    }
+  exitPlanMode(): void {
+    if (!this.planMode) return;
+    this.planMode = false;
+    this.messages.push({
+      role: 'user',
+      content: 'PLAN APPROVED. You are no longer in plan mode. All tools are now available. Execute the plan you just proposed. Do not re-summarize it — just start carrying it out.',
+    });
   }
 
   async chat(userInput: string): Promise<void> {
@@ -215,7 +188,7 @@ ${toolList}`;
 
       const { message } = response;
       const content = message.content || '';
-      const jsonResponse = this.parseJsonResponse(content);
+      const jsonResponse = parseJsonResponse(content);
 
       if (!jsonResponse) {
         console.error(chalk.red('Error: Model failed to provide a valid JSON response. Response:'), content);
@@ -231,15 +204,21 @@ ${toolList}`;
         continue;
       }
 
-      // Check for connection error responses from providers
-      const isConnectionError = jsonResponse.thought?.includes('Connection to Ollama server failed') ||
-                               jsonResponse.message?.includes('unable to connect to the Ollama server') ||
-                               jsonResponse.message?.includes("I'm unable to connect to the Ollama server");
+      // Detect when the model itself is reporting a connection problem (no tool call,
+      // explicit error language). Real network-layer connection errors are surfaced
+      // by the provider directly. Without the no-tool-call guard, this substring match
+      // false-positives on valid responses that happen to mention connectivity.
+      const hasToolCallInResponse = !!(jsonResponse.tool_call && jsonResponse.tool_call.name);
+      const isConnectionError = !hasToolCallInResponse && (
+        jsonResponse.thought?.includes('Connection to Ollama server failed') ||
+        jsonResponse.message?.includes('unable to connect to the Ollama server') ||
+        jsonResponse.message?.includes("I'm unable to connect to the Ollama server")
+      );
 
       if (isConnectionError) {
         console.log(chalk.red('\n❌ Connection error detected.'));
         if (jsonResponse.message) {
-          console.log(chalk.yellow(`\nA: ${jsonResponse.message}`));
+          console.log(chalk.yellow(`\n${jsonResponse.message}`));
         }
         // End the current chat loop instead of terminating the entire process
         loop = false;
@@ -312,19 +291,31 @@ ${toolList}`;
       };
       this.messages.push(assistantMessage);
 
-      if (reasoning) {
-        console.log(chalk.gray(`\nReasoning: ${reasoning}`));
-      }
-
       if (displayContent) {
-        const prefix = thinkingCount > 0 ? '\nAssistant (Refining):' : '\nAssistant:';
-        console.log(chalk.green(prefix), displayContent);
+        console.log(chalk.green('\nAssistant:'), displayContent);
       }
 
       if (toolCalls && toolCalls.length > 0) {
         totalToolCalls += toolCalls.length;
         consecutiveNoToolCalls = 0;
         for (const toolCall of toolCalls) {
+          if (this.planMode && !registry.isReadOnly(toolCall.function.name)) {
+            const blockMsg = `Error: '${toolCall.function.name}' is blocked in plan mode. You can only investigate with read-only tools. Produce your plan in the 'message' field and set satisfied:true so the user can approve it.`;
+            console.log(chalk.yellow(`\nPlan mode: blocked '${toolCall.function.name}'.`));
+            lastToolActions.push({
+              name: toolCall.function.name,
+              args: toolCall.function.arguments,
+              result: blockMsg,
+            });
+            this.messages.push({
+              role: 'tool',
+              content: blockMsg,
+              tool_call_id: toolCall.id,
+              name: toolCall.function.name,
+            });
+            continue;
+          }
+
           console.log(chalk.yellow(`\nExecuting tool: ${toolCall.function.name}`));
           console.log(chalk.gray(`Arguments: ${toolCall.function.arguments}`));
 
@@ -385,11 +376,12 @@ ${toolList}`;
 
         // No tool calls, check if we should reflect or if we are satisfied
         if (isSatisfied) {
-          // Check if it's a project-related question being answered without investigation
+          // Plan mode requires investigation. So do project-related questions.
           const projectKeywords = ['project', 'code', 'repo', 'repository', 'files', 'structure', 'this', 'about', 'work'];
           const isProjectQuestion = projectKeywords.some(k => userInput.toLowerCase().includes(k));
-          
-          if (isProjectQuestion && totalToolCalls === 0) {
+          const needsInvestigation = this.planMode || isProjectQuestion;
+
+          if (needsInvestigation && totalToolCalls === 0) {
             console.log(chalk.yellow('\n(Enforcing empirical investigation...)'));
             
             // Force list_files to break the hallucination and ensure mandatory investigation
@@ -414,9 +406,12 @@ ${toolList}`;
                 name: toolName,
               });
               
+              const guidance = this.planMode
+                ? 'I have automatically executed list_files for you because plan mode requires investigation before producing a plan. Now read at least one or two relevant files (README.md, package.json, and any obviously-related source files) using read_file, THEN produce a plan in the required markdown format with REAL file paths from this project. Do not set satisfied:true until your plan references actual files you have read.'
+                : 'I have automatically executed list_files for you because you are required to investigate the project structure before answering. Please use this information to provide a factual response based on the actual files.';
               this.messages.push({
                 role: 'user',
-                content: 'I have automatically executed list_files for you because you are required to investigate the project structure before answering. Please use this information to provide a factual response based on the actual files.'
+                content: guidance,
               });
               
               // Reset consecutive turns to allow the model to react to the new data

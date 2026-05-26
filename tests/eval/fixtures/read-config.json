@@ -1,0 +1,15 @@
+{
+  "name": "read-config",
+  "description": "Model reads a file and summarizes it.",
+  "prompt": "show me the config file",
+  "deepThinking": false,
+  "scriptedResponses": [
+    "{\"thought\":\"read src/config.ts\",\"tool_call\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"src/config.ts\"}},\"message\":\"reading\",\"satisfied\":false}",
+    "{\"thought\":\"done\",\"tool_call\":null,\"message\":\"The config exports DEFAULT_PROVIDER and DEFAULT_MODEL.\",\"satisfied\":true}"
+  ],
+  "stubTools": {
+    "read_file": "export const config = { DEFAULT_PROVIDER: 'ollama', DEFAULT_MODEL: 'llama3' };"
+  },
+  "expectedToolSequence": ["read_file"],
+  "expectFinalSatisfied": true
+}

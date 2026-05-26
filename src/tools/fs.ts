@@ -13,6 +13,7 @@ export const readFileTool: Tool = {
       },
       required: ['path'],
     },
+    readOnly: true,
   },
   async execute({ path: filePath }) {
     try {
@@ -36,6 +37,7 @@ export const writeFileTool: Tool = {
       },
       required: ['path', 'content'],
     },
+    readOnly: false,
   },
   async execute({ path: filePath, content }) {
     try {
@@ -44,6 +46,29 @@ export const writeFileTool: Tool = {
       return `Successfully wrote to ${filePath}`;
     } catch (e: any) {
       return `Error writing file: ${e.message}`;
+    }
+  },
+};
+
+export const createDirectoryTool: Tool = {
+  definition: {
+    name: 'create_directory',
+    description: 'Create a directory (recursive: parents are created as needed). Idempotent — succeeds even if the directory already exists.',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The directory path to create' },
+      },
+      required: ['path'],
+    },
+    readOnly: false,
+  },
+  async execute({ path: dirPath }) {
+    try {
+      await fs.mkdir(dirPath, { recursive: true });
+      return `Successfully created directory ${dirPath}`;
+    } catch (e: any) {
+      return `Error creating directory: ${e.message}`;
     }
   },
 };
@@ -58,6 +83,7 @@ export const listFilesTool: Tool = {
         path: { type: 'string', description: 'The directory to list', default: '.' },
       },
     },
+    readOnly: true,
   },
   async execute({ path: dirPath = '.' }) {
     try {

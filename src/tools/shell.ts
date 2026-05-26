@@ -17,6 +17,7 @@ export const shellTool: Tool = {
       },
       required: ['command'],
     },
+    readOnly: false,
   },
   async execute({ command }) {
     console.log(chalk.yellow(`\n⚠️  The agent wants to execute the following command:`));
@@ -36,7 +37,7 @@ export const shellTool: Tool = {
     }
 
     try {
-      const { stdout, stderr } = await execAsync(command);
+      const { stdout, stderr } = await execAsync(command, { cwd: process.cwd() });
       return `stdout:\n${stdout}\n\nstderr:\n${stderr}`;
     } catch (e: any) {
       return `Error executing command: ${e.message}\n\nstdout:\n${e.stdout}\n\nstderr:\n${e.stderr}`;

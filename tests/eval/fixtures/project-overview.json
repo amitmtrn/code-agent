@@ -1,0 +1,15 @@
+{
+  "name": "project-overview",
+  "description": "Model claims satisfaction without investigating; mandatory list_files must be forced.",
+  "prompt": "what is this project about?",
+  "deepThinking": false,
+  "scriptedResponses": [
+    "{\"thought\":\"I think I know\",\"tool_call\":null,\"message\":\"It is a CLI tool.\",\"satisfied\":true}",
+    "{\"thought\":\"now grounded\",\"tool_call\":null,\"message\":\"It is a Node CLI agent.\",\"satisfied\":true}"
+  ],
+  "stubTools": {
+    "list_files": "README.md\npackage.json\nsrc"
+  },
+  "expectedToolSequence": ["list_files"],
+  "expectFinalSatisfied": true
+}

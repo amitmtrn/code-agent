@@ -12,12 +12,24 @@ export class ToolRegistry {
     this.tools.set(tool.definition.name, tool);
   }
 
+  clear() {
+    this.tools.clear();
+  }
+
   getTool(name: string): Tool | undefined {
     return this.tools.get(name);
   }
 
-  getDefinitions(): ToolDefinition[] {
-    return Array.from(this.tools.values()).map(t => t.definition);
+  isReadOnly(name: string): boolean {
+    return this.tools.get(name)?.definition.readOnly === true;
+  }
+
+  getDefinitions(opts: { readOnlyOnly?: boolean } = {}): ToolDefinition[] {
+    const defs = Array.from(this.tools.values()).map(t => t.definition);
+    if (opts.readOnlyOnly) {
+      return defs.filter(d => d.readOnly === true);
+    }
+    return defs;
   }
 
   async execute(name: string, args: string): Promise<string> {

@@ -1,0 +1,15 @@
+{
+  "name": "write-new-file",
+  "description": "Model writes a file and confirms.",
+  "prompt": "create hello.txt containing the word hi",
+  "deepThinking": false,
+  "scriptedResponses": [
+    "{\"thought\":\"writing the file\",\"tool_call\":{\"name\":\"write_file\",\"arguments\":{\"path\":\"hello.txt\",\"content\":\"hi\"}},\"message\":\"writing\",\"satisfied\":false}",
+    "{\"thought\":\"done\",\"tool_call\":null,\"message\":\"Wrote hello.txt.\",\"satisfied\":true}"
+  ],
+  "stubTools": {
+    "write_file": "Successfully wrote to hello.txt"
+  },
+  "expectedToolSequence": ["write_file"],
+  "expectFinalSatisfied": true
+}

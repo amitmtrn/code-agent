@@ -1,0 +1,17 @@
+{
+  "name": "multi-step-investigation",
+  "description": "Two-tool chain: list_files then read_file, then a satisfied summary.",
+  "prompt": "summarize the readme of this project",
+  "deepThinking": false,
+  "scriptedResponses": [
+    "{\"thought\":\"find readme\",\"tool_call\":{\"name\":\"list_files\",\"arguments\":{\"path\":\".\"}},\"message\":\"looking\",\"satisfied\":false}",
+    "{\"thought\":\"read it\",\"tool_call\":{\"name\":\"read_file\",\"arguments\":{\"path\":\"README.md\"}},\"message\":\"reading\",\"satisfied\":false}",
+    "{\"thought\":\"done\",\"tool_call\":null,\"message\":\"It is a multi-provider Claude Code clone.\",\"satisfied\":true}"
+  ],
+  "stubTools": {
+    "list_files": "README.md\npackage.json\nsrc",
+    "read_file": "# Codagent\nA clone of Claude Code."
+  },
+  "expectedToolSequence": ["list_files", "read_file"],
+  "expectFinalSatisfied": true
+}

@@ -1,0 +1,109 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseJsonResponse } from '../../src/agent/parse';
+
+describe('parseJsonResponse', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  it('parses a clean JSON response with all four schema fields', () => {
+    const input = JSON.stringify({
+      thought: 'thinking',
+      tool_call: { name: 'list_files', arguments: { path: '.' } },
+      message: 'ok',
+      satisfied: false,
+    });
+    const result = parseJsonResponse(input);
+    expect(result).not.toBeNull();
+    expect(result?.thought).toBe('thinking');
+    expect(result?.message).toBe('ok');
+    expect(result?.satisfied).toBe(false);
+    expect(result?.tool_call?.name).toBe('list_files');
+  });
+
+  it('parses JSON wrapped in a ```json fenced block', () => {
+    const input = '```json\n{"satisfied": true, "message": "done"}\n```';
+    const result = parseJsonResponse(input);
+    expect(result?.satisfied).toBe(true);
+    expect(result?.message).toBe('done');
+  });
+
+  it('parses JSON wrapped in a plain ``` fenced block', () => {
+    const input = '```\n{"message": "hi", "satisfied": true}\n```';
+    const result = parseJsonResponse(input);
+    expect(result?.message).toBe('hi');
+  });
+
+  it('rejects content with a leading XML tag like <thinking>', () => {
+    const input = '<thinking>foo</thinking>\n{"message": "x", "satisfied": true}';
+    expect(parseJsonResponse(input)).toBeNull();
+  });
+
+  it('rejects content with a trailing XML tag after the JSON', () => {
+    // Tag name must satisfy the parser's /<[a-zA-Z]+[0-9]*\b[^>]*>/ regex —
+    // underscored names like <tool_call> slip past the \b. Use <reflect> here.
+    const input = '{"message": "x", "satisfied": true}\n<reflect>foo</reflect>';
+    expect(parseJsonResponse(input)).toBeNull();
+  });
+
+  it('accepts embedded XML inside a JSON string value', () => {
+    const input = '{"message": "see <tag>x</tag>", "satisfied": true}';
+    const result = parseJsonResponse(input);
+    expect(result?.message).toBe('see <tag>x</tag>');
+  });
+
+  it('repairs literal newlines inside a string field', () => {
+    const input = '{"message": "line1\nline2", "satisfied": true}';
+    const result = parseJsonResponse(input);
+    expect(result?.satisfied).toBe(true);
+    expect(result?.message).toContain('line1');
+  });
+
+  it('repairs a missing trailing closing brace', () => {
+    const input = '{"message": "x", "satisfied": true';
+    const result = parseJsonResponse(input);
+    expect(result?.satisfied).toBe(true);
+  });
+
+  it('trims trailing garbage after the JSON object', () => {
+    const input = '{"message": "x", "satisfied": true}   trailing junk text   ';
+    const result = parseJsonResponse(input);
+    expect(result?.message).toBe('x');
+  });
+
+  it('returns null for empty or whitespace-only input', () => {
+    expect(parseJsonResponse('')).toBeNull();
+    expect(parseJsonResponse('   \n\t  ')).toBeNull();
+  });
+
+  it('returns null for non-string input', () => {
+    expect(parseJsonResponse(null as unknown as string)).toBeNull();
+    expect(parseJsonResponse(undefined as unknown as string)).toBeNull();
+    expect(parseJsonResponse(42 as unknown as string)).toBeNull();
+    expect(parseJsonResponse({} as unknown as string)).toBeNull();
+  });
+
+  it('returns null for a JSON object with none of the four known keys', () => {
+    const input = '{"foo": "bar", "baz": 1}';
+    expect(parseJsonResponse(input)).toBeNull();
+  });
+
+  it('accepts a JSON object with only `satisfied`', () => {
+    const result = parseJsonResponse('{"satisfied": true}');
+    expect(result?.satisfied).toBe(true);
+  });
+
+  it('preserves tool_call.arguments when passed as an object (not a string)', () => {
+    const input = JSON.stringify({
+      tool_call: { name: 'read_file', arguments: { path: 'foo.ts' } },
+      satisfied: false,
+    });
+    const result = parseJsonResponse(input);
+    expect(result?.tool_call?.arguments).toEqual({ path: 'foo.ts' });
+  });
+
+  it('returns null for irrecoverably malformed JSON without throwing', () => {
+    expect(() => parseJsonResponse('{ this is not json at all ::: ')).not.toThrow();
+    expect(parseJsonResponse('{ this is not json at all ::: ')).toBeNull();
+  });
+});

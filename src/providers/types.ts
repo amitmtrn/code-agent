@@ -15,6 +15,7 @@ export interface ToolDefinition {
     properties: Record<string, any>;
     required?: string[];
   };
+  readOnly?: boolean;
 }
 
 export interface ChatOptions {

@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import * as path from 'path';
 
-dotenv.config();
+// Load .env from the codagent install directory (the parent of dist/ at runtime,
+// the parent of src/ during ts-node). The user's invocation cwd may be a different
+// project; codagent's own credentials/defaults live with the install, not there.
+dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 
 export function normalizeUrl(url: string): string {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -21,6 +25,7 @@ const configSchema = z.object({
   DEFAULT_PROVIDER: z.enum(['ollama', 'replicate']).default('ollama'),
   DEFAULT_MODEL: z.string().default('llama3'),
   DEEP_THINKING: z.preprocess((val) => val === 'true', z.boolean()).default(false),
+  PLAN_MODE: z.preprocess((val) => val === 'true', z.boolean()).default(false),
   MAX_THINKING_LOOPS: z.preprocess((val) => val ? parseInt(val as string, 10) : undefined, z.number()).default(5),
 });
 
