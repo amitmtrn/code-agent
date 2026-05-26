@@ -27,6 +27,10 @@ export interface ChatOptions {
 export interface ChatResponse {
   message: Message;
   toolCalls?: ToolCall[];
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+  };
 }
 
 export interface ToolCall {

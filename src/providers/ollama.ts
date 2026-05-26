@@ -303,7 +303,8 @@ export class OllamaProvider implements Provider {
     }
 
     const message = response.message as any;
-    
+    const r: any = response;
+
     return {
       message: {
         role: message.role as any,
@@ -318,6 +319,12 @@ export class OllamaProvider implements Provider {
           arguments: JSON.stringify(tc.function.arguments),
         },
       })),
+      usage: (typeof r.prompt_eval_count === 'number' || typeof r.eval_count === 'number')
+        ? {
+            input_tokens: r.prompt_eval_count || 0,
+            output_tokens: r.eval_count || 0,
+          }
+        : undefined,
     };
   }
 }

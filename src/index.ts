@@ -8,6 +8,8 @@ import { Agent } from './agent/core';
 import { registry } from './tools/registry';
 import { readFileTool, writeFileTool, listFilesTool, createDirectoryTool } from './tools/fs';
 import { shellTool } from './tools/shell';
+import { setRuntime } from './runtime';
+import { emitError } from './output/emit';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 
@@ -23,22 +25,35 @@ const program = new Command();
 program
   .name('codagent')
   .description('A clone of Claude Code using Replicate and Ollama models')
-  .version('0.1.0')
+  .version('0.2.0')
   .option('-p, --provider <provider>', 'LLM provider (ollama or replicate)', config.DEFAULT_PROVIDER)
   .option('-m, --model <model>', 'Model name', config.DEFAULT_MODEL)
   .option('--host <host>', 'Ollama host URL')
   .option('-d, --deep-thinking', 'Enable deep thinking (self-reflection)', config.DEEP_THINKING)
   .option('--plan', 'Start in plan mode (read-only investigation + approval gate)', config.PLAN_MODE)
+  .option('--exec', 'Run the prompt once and exit (no interactive loop). Reads prompt from stdin if no positional argument is given.', false)
+  .option('--json', 'Emit NDJSON events to stdout (one JSON object per line) instead of pretty output. Suitable for embedding in other tools.', false)
+  .option('--yes', 'Auto-approve shell-command confirmations (no TTY prompts). Required when running headless.', false)
   .argument('[prompt]', 'Initial prompt for the agent')
   .action(async (initialPrompt, options) => {
-    let provider;
+    setRuntime({
+      exec: !!options.exec,
+      json: !!options.json,
+      autoApprove: !!options.yes,
+    });
 
+    if (options.exec && options.plan) {
+      emitError('--exec and --plan are incompatible: plan mode requires interactive approval.');
+      process.exit(1);
+    }
+
+    let provider;
     if (options.provider === 'ollama') {
       provider = new OllamaProvider(options.host);
     } else if (options.provider === 'replicate') {
       provider = new ReplicateProvider();
     } else {
-      console.error(chalk.red(`Unknown provider: ${options.provider}`));
+      emitError(`Unknown provider: ${options.provider}`);
       process.exit(1);
     }
 
@@ -50,9 +65,21 @@ program
       options.plan,
     );
 
-    console.log(chalk.gray(`pwd: ${process.cwd()}`));
-    if (options.plan) {
-      console.log(chalk.magenta('🗒  Plan mode active — read-only tools only. You will review the plan before execution.'));
+    if (!options.json) {
+      console.log(chalk.gray(`pwd: ${process.cwd()}`));
+      if (options.plan) {
+        console.log(chalk.magenta('🗒  Plan mode active — read-only tools only. You will review the plan before execution.'));
+      }
+    }
+
+    if (options.exec) {
+      const prompt = initialPrompt || (await readStdin());
+      if (!prompt || !prompt.trim()) {
+        emitError('No prompt provided. Pass a positional argument or pipe text to stdin.');
+        process.exit(1);
+      }
+      await agent.chat(prompt.trim());
+      process.exit(0);
     }
 
     if (initialPrompt) {
@@ -78,6 +105,17 @@ program
       if (await handlePlanApproval(agent)) return;
     }
   });
+
+async function readStdin(): Promise<string> {
+  if (process.stdin.isTTY) return '';
+  return new Promise((resolve, reject) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => { data += chunk; });
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', reject);
+  });
+}
 
 async function handlePlanApproval(agent: Agent): Promise<boolean> {
   if (!agent.isInPlanMode()) return false;

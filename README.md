@@ -76,6 +76,37 @@ codagent --plan "refactor the auth layer"
 codagent --provider replicate --model meta/meta-llama-3-70b-instruct "Write a blog post about AI"
 ```
 
+### Headless mode (embedding in other tools)
+
+`codagent` can be embedded as a non-interactive subprocess. The combination
+`--exec --json --yes` is the recommended preset:
+
+```bash
+# Pass prompt as argument
+codagent --exec --json --yes "list the files in this folder"
+
+# Pipe prompt via stdin
+echo "describe this project" | codagent --exec --json --yes
+```
+
+| Flag | Effect |
+| :--- | :--- |
+| `--exec` | Run the prompt once and exit. Skips the interactive REPL. Reads from stdin when no positional prompt is given. |
+| `--json` | Emit NDJSON events on stdout instead of colored text. One JSON object per line. |
+| `--yes` | Auto-approve `execute_shell` confirmations. Required when running without a TTY. |
+
+NDJSON event schema (one object per line):
+
+```json
+{"type":"message","content":"..."}
+{"type":"tool_use","tool_name":"read_file","parameters":{"path":"README.md"},"tool_id":"json_1700000000000"}
+{"type":"tool_result","tool_id":"json_1700000000000","output":"..."}
+{"type":"result","result":"Success","stats":{"input_tokens":1234,"output_tokens":567},"model":"llama3"}
+{"type":"error","message":"..."}
+```
+
+`--exec` is incompatible with `--plan`: plan mode requires interactive approval and cannot run headless.
+
 ### Local Setup & Development
 
 If you're contributing to Codagent or running from source:

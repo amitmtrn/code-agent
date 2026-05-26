@@ -1,6 +1,8 @@
 import { Provider, Message, ToolCall } from '../providers/types';
 import { registry } from '../tools/registry';
 import { parseJsonResponse } from './parse';
+import { emitMessage, emitToolUse, emitToolResult, emitResult, emitError, emitInfo, UsageStats } from '../output/emit';
+import { runtime } from '../runtime';
 import chalk from 'chalk';
 
 const PLAN_MODE_ADDENDUM = `
@@ -159,11 +161,12 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
     let totalToolCalls = 0;
     let lastContent = '';
     let lastToolActions: { name: string; args: string; result: string }[] = [];
+    const totalUsage: UsageStats = { input_tokens: 0, output_tokens: 0 };
 
     while (loop) {
       thinkingCount++;
       if (thinkingCount > this.maxThinkingLoops * 2) {
-        console.log(chalk.red('\nMaximum turns reached. Ending loop.'));
+        emitError('Maximum turns reached. Ending loop.');
         break;
       }
 
@@ -177,8 +180,8 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         lastToolActions = [];
       }
 
-      console.log(chalk.blue('Thinking...'));
-      
+      emitInfo('Thinking...');
+
       const response = await this.provider.chat({
         model: this.model,
         messages: this.messages,
@@ -186,12 +189,17 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         tools: undefined,
       });
 
+      if (response.usage) {
+        totalUsage.input_tokens += response.usage.input_tokens || 0;
+        totalUsage.output_tokens += response.usage.output_tokens || 0;
+      }
+
       const { message } = response;
       const content = message.content || '';
       const jsonResponse = parseJsonResponse(content);
 
       if (!jsonResponse) {
-        console.error(chalk.red('Error: Model failed to provide a valid JSON response. Response:'), content);
+        emitError(`Model failed to provide a valid JSON response. Response: ${content}`);
         this.messages.push({
           role: 'assistant',
           content: content
@@ -216,9 +224,9 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
       );
 
       if (isConnectionError) {
-        console.log(chalk.red('\n❌ Connection error detected.'));
+        emitError('Connection error detected.');
         if (jsonResponse.message) {
-          console.log(chalk.yellow(`\n${jsonResponse.message}`));
+          emitError(jsonResponse.message);
         }
         // End the current chat loop instead of terminating the entire process
         loop = false;
@@ -267,7 +275,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
           });
 
           if (previouslyFailed) {
-            console.log(chalk.red(`\nRepetitive failed tool call detected: ${toolName}`));
+            emitError(`Repetitive failed tool call detected: ${toolName}`);
             this.messages.push({
               role: 'user',
               content: `ERROR: You are attempting to repeat the same tool call that already failed: '${toolName}' with arguments ${toolArgs}. DO NOT repeat this mistake. You MUST try a different path (e.g., list files first, check for typos, or use a different tool) or admit you cannot proceed.`
@@ -292,7 +300,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
       this.messages.push(assistantMessage);
 
       if (displayContent) {
-        console.log(chalk.green('\nAssistant:'), displayContent);
+        emitMessage(displayContent);
       }
 
       if (toolCalls && toolCalls.length > 0) {
@@ -301,7 +309,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         for (const toolCall of toolCalls) {
           if (this.planMode && !registry.isReadOnly(toolCall.function.name)) {
             const blockMsg = `Error: '${toolCall.function.name}' is blocked in plan mode. You can only investigate with read-only tools. Produce your plan in the 'message' field and set satisfied:true so the user can approve it.`;
-            console.log(chalk.yellow(`\nPlan mode: blocked '${toolCall.function.name}'.`));
+            emitInfo(`Plan mode: blocked '${toolCall.function.name}'.`);
             lastToolActions.push({
               name: toolCall.function.name,
               args: toolCall.function.arguments,
@@ -316,16 +324,17 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
             continue;
           }
 
-          console.log(chalk.yellow(`\nExecuting tool: ${toolCall.function.name}`));
-          console.log(chalk.gray(`Arguments: ${toolCall.function.arguments}`));
+          let parsedArgs: any = toolCall.function.arguments;
+          try { parsedArgs = JSON.parse(toolCall.function.arguments); } catch { /* keep raw */ }
+          emitToolUse(toolCall.function.name, parsedArgs, toolCall.id);
 
           try {
             const result = await registry.execute(
               toolCall.function.name,
               toolCall.function.arguments
             );
-            
-            console.log(chalk.cyan('Result:'), result.length > 100 ? result.substring(0, 100) + '...' : result);
+
+            emitToolResult(toolCall.id, result);
 
             lastToolActions.push({
               name: toolCall.function.name,
@@ -340,8 +349,8 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
               name: toolCall.function.name,
             });
           } catch (e: any) {
-            console.error(chalk.red(`Tool execution error: ${e.message}`));
-            
+            emitToolResult(toolCall.id, `Error: ${e.message}`);
+
             lastToolActions.push({
               name: toolCall.function.name,
               args: toolCall.function.arguments,
@@ -361,17 +370,17 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         
         // Stagnation detection
         if (consecutiveNoToolCalls >= 3) {
-          console.log(chalk.red('\nStagnation detected: 3 consecutive turns without tool calls. Ending loop.'));
+          emitError('Stagnation detected: 3 consecutive turns without tool calls. Ending loop.');
           loop = false;
           break;
         }
 
         if (content && content === lastContent) {
-          console.log(chalk.red('\nStagnation detected: Repetitive response. Ending loop.'));
+          emitError('Stagnation detected: Repetitive response. Ending loop.');
           loop = false;
           break;
         }
-        
+
         lastContent = content;
 
         // No tool calls, check if we should reflect or if we are satisfied
@@ -382,7 +391,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
           const needsInvestigation = this.planMode || isProjectQuestion;
 
           if (needsInvestigation && totalToolCalls === 0) {
-            console.log(chalk.yellow('\n(Enforcing empirical investigation...)'));
+            emitInfo('(Enforcing empirical investigation...)');
             
             // Force list_files to break the hallucination and ensure mandatory investigation
             try {
@@ -417,7 +426,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
               // Reset consecutive turns to allow the model to react to the new data
               consecutiveNoToolCalls = 0;
             } catch (e: any) {
-              console.error(chalk.red(`Failed to enforce investigation: ${e.message}`));
+              emitError(`Failed to enforce investigation: ${e.message}`);
               loop = false;
             }
           } else {
@@ -425,7 +434,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
           }
         } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops * 2) {
           // Trigger reflection
-          console.log(chalk.magenta(`\n(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops * 2}...)`));
+          emitInfo(`(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops * 2}...)`);
           this.messages.push({
             role: 'user',
             content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that you have fully answered the user request with EMPIRICAL EVIDENCE? You are not yet satisfied and have NOT called a tool in this turn. You MUST use a tool to investigate the project or provide a more complete answer. Hallucinating information without tool use is strictly forbidden.'
@@ -435,5 +444,7 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         }
       }
     }
+
+    emitResult(totalUsage, this.model);
   }
 }

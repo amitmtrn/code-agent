@@ -1,6 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { Tool } from './registry';
+import { runtime } from '../runtime';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 
@@ -20,20 +21,24 @@ export const shellTool: Tool = {
     readOnly: false,
   },
   async execute({ command }) {
-    console.log(chalk.yellow(`\n⚠️  The agent wants to execute the following command:`));
-    console.log(chalk.white(`   ${command}`));
+    if (!runtime.autoApprove) {
+      if (!runtime.json) {
+        console.log(chalk.yellow(`\n⚠️  The agent wants to execute the following command:`));
+        console.log(chalk.white(`   ${command}`));
+      }
 
-    const { confirm } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message: 'Do you want to allow this command?',
-        default: false,
-      },
-    ]);
+      const { confirm } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirm',
+          message: 'Do you want to allow this command?',
+          default: false,
+        },
+      ]);
 
-    if (!confirm) {
-      return 'Command execution cancelled by user.';
+      if (!confirm) {
+        return 'Command execution cancelled by user.';
+      }
     }
 
     try {
