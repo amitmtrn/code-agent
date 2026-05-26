@@ -59,6 +59,8 @@ export class Agent {
     private planMode: boolean = false,
     systemPrompt: string = `You are a concise, capable coding assistant. Use tools to gather facts before answering questions about the current project — never hallucinate file structure or contents.
 
+You operate autonomously. DO NOT ask the user clarifying questions like "which file should I edit?" or "what content should I add?". The user has already given you a complete request — your job is to investigate the project with tools (list_files, read_file) and then act (write_file, execute_shell). If something is ambiguous, make a reasonable choice based on the project's conventions and proceed. A response whose 'message' field is a question to the user is never an acceptable final answer.
+
 You MUST ALWAYS respond in the following JSON format, and NOTHING ELSE. No conversational text before or after the JSON block. DO NOT use any XML tags like <tool_call> or <thinking>.
 
 ### Mandatory JSON Schema:
@@ -385,6 +387,21 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
 
         // No tool calls, check if we should reflect or if we are satisfied
         if (isSatisfied) {
+          // The model is "done" but it just asked the user a clarifying question.
+          // For an autonomous agent that's not done — push back instead of exiting
+          // with a question masquerading as the answer.
+          const trimmedMessage = (displayContent || '').trim();
+          const isClarifyingQuestion = trimmedMessage.endsWith('?') && trimmedMessage.length > 0;
+          if (isClarifyingQuestion) {
+            emitInfo('(Rejecting clarifying question — pushing model to investigate and act.)');
+            this.messages.push({
+              role: 'user',
+              content: "Do not ask the user clarifying questions. You operate autonomously. Investigate the project with list_files / read_file, then make a reasonable choice based on what you find and use write_file or execute_shell to carry out the request. Set satisfied:true only after you have actually done the work."
+            });
+            consecutiveNoToolCalls = 0;
+            continue;
+          }
+
           // Plan mode requires investigation. So do project-related questions.
           const projectKeywords = ['project', 'code', 'repo', 'repository', 'files', 'structure', 'this', 'about', 'work'];
           const isProjectQuestion = projectKeywords.some(k => userInput.toLowerCase().includes(k));
@@ -392,15 +409,19 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
 
           if (needsInvestigation && totalToolCalls === 0) {
             emitInfo('(Enforcing empirical investigation...)');
-            
+
             // Force list_files to break the hallucination and ensure mandatory investigation
             try {
               const toolName = 'list_files';
               const toolArgs = '{"path":"."}';
-              const result = await registry.execute(toolName, toolArgs);
-              totalToolCalls++;
-              
               const toolCallId = `mandatory_${Date.now()}`;
+              // Emit BEFORE executing so embedding hosts (skuld, etc.) see the
+              // tool_use event as real activity instead of a silent run.
+              emitToolUse(toolName, JSON.parse(toolArgs), toolCallId);
+              const result = await registry.execute(toolName, toolArgs);
+              emitToolResult(toolCallId, result);
+              totalToolCalls++;
+
               // Update the assistant message to include the tool call so history is consistent
               assistantMessage.tool_calls = [{
                 id: toolCallId,
