@@ -47,17 +47,20 @@ const FOREGROUND_SERVER_RE = /\b(npm|pnpm|yarn|bun)\s+(start|run\s+(dev|start|se
 
 /**
  * A command is safe even though it matches FOREGROUND_SERVER_RE when the
- * caller has already arranged for it not to block — either by backgrounding
- * the whole pipeline (trailing single `&`) or by capping it with `timeout`.
- * Without this exception, the agent's natural workaround (`nohup … &`) gets
- * refused too, and the model loops trying to escape its own jail.
+ * caller has already arranged for it not to block — either:
+ *  - any standalone backgrounding `&` anywhere in the command (e.g. the
+ *    canonical verify-after-background pattern
+ *    `nohup … & sleep 1 && curl …`), or
+ *  - a leading `timeout <secs>` that caps the run.
+ *
+ * A standalone `&` must be distinguished from `&&` (logical AND) and from
+ * the `&N` part of redirects like `2>&1`. The regex below matches `&` that
+ * is preceded by something other than `&` and NOT followed by `&` or a
+ * digit, which excludes both cases.
  */
 function isAlreadyBoundedRun(command: string): boolean {
   const trimmed = command.trim();
-  // Trailing `&` is the shell's background operator. Reject only standalone `&`
-  // (not `&&`, which is logical-AND). We look at the last meaningful char.
-  if (/(^|[^&])&\s*$/.test(trimmed)) return true;
-  // Leading `timeout <secs>` is the user explicitly capping the run.
+  if (/(?<!&)&(?![&\d])/.test(trimmed)) return true;
   if (/^\s*timeout\s+\d+(\.\d+)?[smhd]?\s+/.test(trimmed)) return true;
   return false;
 }
@@ -116,7 +119,26 @@ Other rules:
     // Reject foreground-server commands up front so we don't burn the 10-min
     // timeout. The model can re-issue with a background-run pattern.
     if (FOREGROUND_SERVER_RE.test(command) && !isAlreadyBoundedRun(command)) {
-      return `Error: refused to run \`${command}\` because it looks like a foreground server that would never exit. Run servers in the background instead: \`nohup ${command} > /tmp/server.log 2>&1 &\`, then continue. If you actually need the server's output to verify it boots, run it briefly with a timeout (\`timeout 5 ${command}\`).`;
+      // Build a correct nohup-with-cd suggestion. `nohup cd subdir && cmd`
+      // does NOT work — nohup can't wrap the `cd` shell builtin. We need
+      // `nohup sh -c 'cd subdir && cmd' …` so the whole chain runs under
+      // nohup. If the command has no leading `cd`, the simple form suffices.
+      const m = command.match(/^\s*cd\s+(\S+)\s*&&\s*([\s\S]+)$/);
+      const bgSuggestion = m
+        ? `nohup sh -c 'cd ${m[1]} && ${m[2]}' > /tmp/server.log 2>&1 &`
+        : `nohup ${command} > /tmp/server.log 2>&1 &`;
+      const verifySuggestion = m
+        ? `nohup sh -c 'cd ${m[1]} && ${m[2]}' > /tmp/server.log 2>&1 & sleep 1 && curl --max-time 5 http://localhost:PORT/`
+        : `${bgSuggestion} sleep 1 && curl --max-time 5 http://localhost:PORT/`;
+      return `Error: refused to run \`${command}\` because it looks like a foreground server that would never exit.
+
+Run it in the background instead:
+  ${bgSuggestion}
+
+Even better — chain a verification probe in the SAME call so you actually know whether it started:
+  ${verifySuggestion}
+
+If \`curl\` returns nothing, \`tail -50 /tmp/server.log\` to see why the server died (a common cause: no \`start\` script in package.json).`;
     }
 
     const effective = withDiagnosticTimeout(command);

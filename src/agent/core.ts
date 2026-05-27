@@ -146,6 +146,11 @@ Each \`execute_shell\` call runs in a fresh subshell that starts at the project 
 # Verifying backgrounded servers
 A backgrounded command (\`nohup ... &\`) returns immediately with empty stdout regardless of whether the server actually came up — for example, \`nohup npm start &\` silently does nothing if there's no \`start\` script in package.json. To know if it really started, chain a quick probe in the SAME call:
   \`nohup npm start > /tmp/server.log 2>&1 & sleep 1 && curl --max-time 5 http://localhost:PORT/ && echo OK || (echo FAILED && tail -50 /tmp/server.log)\`
+
+If you need to \`cd\` into a subdirectory first, wrap the whole chain in \`sh -c '...'\` — \`nohup\` CANNOT wrap a bare \`cd\` (it's a shell builtin, not an executable). The correct form is:
+  \`nohup sh -c 'cd backend && npm start' > /tmp/server.log 2>&1 & sleep 1 && curl --max-time 5 http://localhost:3001/ && echo OK || (echo FAILED && tail -50 /tmp/server.log)\`
+Do NOT write \`nohup cd backend && npm start &\` — that runs \`cd\` under nohup (which fails) and then \`npm start\` separately.
+
 If the probe fails, read /tmp/server.log to see why the server died.`;
 
     const finalPrompt = systemPrompt + (this.planMode ? PLAN_MODE_ADDENDUM : '') + pwdContext + toolInstructions;
