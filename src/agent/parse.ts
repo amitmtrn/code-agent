@@ -82,6 +82,53 @@ function repairInvalidEscapes(s: string): string {
   return out;
 }
 
+/**
+ * Strip non-JSON garbage tokens that appear *outside* string literals between
+ * structural punctuation. Models occasionally hallucinate random words inside
+ * the JSON skeleton — observed cases include Turkish/CJK fragments after a
+ * closing brace, e.g.:
+ *
+ *   "arguments": { "command": "npm start" } işlemler }
+ *
+ * After a `}` or `]` token the next meaningful char must be `,`, `}`, `]`, or
+ * end-of-input. Anything else (letters, identifiers, punctuation other than
+ * separators) is garbage; we drop chars until the grammar lines up again.
+ * Whitespace is preserved so error messages stay readable.
+ */
+function stripGarbageBetweenValues(s: string): string {
+  let out = '';
+  let inString = false;
+  let escape = false;
+  let lastWasClose = false; // last non-ws char outside a string was } or ]
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      out += ch;
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      out += ch;
+      lastWasClose = false;
+      continue;
+    }
+    // Outside string. If we're sitting right after a } or ] and the next
+    // non-whitespace char isn't , } ] (or another closer), it's garbage —
+    // skip it without emitting.
+    if (lastWasClose && /\S/.test(ch) && ch !== ',' && ch !== '}' && ch !== ']') {
+      continue;
+    }
+    if (/\S/.test(ch)) {
+      lastWasClose = (ch === '}' || ch === ']');
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function extractFirstJsonCandidate(text: string): string | null {
   const t = text.trimStart();
   if (!t) return null;
@@ -159,15 +206,22 @@ export function parseJsonResponse(content: unknown): ParsedAgentResponse | null 
       try {
         parsed = JSON.parse(repairInvalidEscapes(jsonStr));
       } catch (innerE) {
-        // Repair pass 2: close an unterminated trailing object by appending `}`s.
-        let repaired = jsonStr.trim();
-        while (repaired.length > 0 && !repaired.endsWith('}')) {
-          repaired += '}';
-          try {
-            parsed = JSON.parse(repairInvalidEscapes(repaired));
-            break;
-          } catch (retryE) {
-            if (repaired.length > jsonStr.length + 10) throw retryE;
+        // Repair pass 2: strip garbage tokens that appear between `}`/`]` and
+        // the next separator (handles hallucinated foreign-word tokens in the
+        // JSON skeleton). Compose with the escape-repair so we cover both.
+        try {
+          parsed = JSON.parse(stripGarbageBetweenValues(repairInvalidEscapes(jsonStr)));
+        } catch (innerE2) {
+          // Repair pass 3: close an unterminated trailing object by appending `}`s.
+          let repaired = jsonStr.trim();
+          while (repaired.length > 0 && !repaired.endsWith('}')) {
+            repaired += '}';
+            try {
+              parsed = JSON.parse(stripGarbageBetweenValues(repairInvalidEscapes(repaired)));
+              break;
+            } catch (retryE) {
+              if (repaired.length > jsonStr.length + 10) throw retryE;
+            }
           }
         }
       }

@@ -18,7 +18,24 @@ const SHELL_MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 // Heuristic — commands that almost always block on a foreground server.
 // We refuse them up front with a hint, since waiting for a timeout wastes
 // 10 minutes and confuses the model.
-const FOREGROUND_SERVER_RE = /\b(npm|pnpm|yarn|bun)\s+(start|run\s+(dev|start|serve|watch))\b|\bnpx\s+(vite|next|nodemon)\b|\bnode\s+\S+\.js\s*$|\bnpm\s+run\s+dev\b|\buvicorn\b|\bgunicorn\b|\bflask\s+run\b|\brails\s+(s|server)\b/;
+const FOREGROUND_SERVER_RE = /\b(npm|pnpm|yarn|bun)\s+(start|run\s+(dev|start|serve|watch))\b|\bnpx\s+(vite|next|nodemon)\b|\bnpm\s+run\s+dev\b|\buvicorn\b|\bgunicorn\b|\bflask\s+run\b|\brails\s+(s|server)\b/;
+
+/**
+ * A command is safe even though it matches FOREGROUND_SERVER_RE when the
+ * caller has already arranged for it not to block — either by backgrounding
+ * the whole pipeline (trailing single `&`) or by capping it with `timeout`.
+ * Without this exception, the agent's natural workaround (`nohup … &`) gets
+ * refused too, and the model loops trying to escape its own jail.
+ */
+function isAlreadyBoundedRun(command: string): boolean {
+  const trimmed = command.trim();
+  // Trailing `&` is the shell's background operator. Reject only standalone `&`
+  // (not `&&`, which is logical-AND). We look at the last meaningful char.
+  if (/(^|[^&])&\s*$/.test(trimmed)) return true;
+  // Leading `timeout <secs>` is the user explicitly capping the run.
+  if (/^\s*timeout\s+\d+(\.\d+)?[smhd]?\s+/.test(trimmed)) return true;
+  return false;
+}
 
 function describeError(e: any, command: string): string {
   // exec sets e.killed=true and e.signal when timed out. Node also sometimes
@@ -67,7 +84,7 @@ export const shellTool: Tool = {
 
     // Reject foreground-server commands up front so we don't burn the 10-min
     // timeout. The model can re-issue with a background-run pattern.
-    if (FOREGROUND_SERVER_RE.test(command)) {
+    if (FOREGROUND_SERVER_RE.test(command) && !isAlreadyBoundedRun(command)) {
       return `Error: refused to run \`${command}\` because it looks like a foreground server that would never exit. Run servers in the background instead: \`nohup ${command} > /tmp/server.log 2>&1 &\`, then continue. If you actually need the server's output to verify it boots, run it briefly with a timeout (\`timeout 5 ${command}\`).`;
     }
 

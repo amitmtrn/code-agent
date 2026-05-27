@@ -159,6 +159,36 @@ describe('parseJsonResponse', () => {
     expect(result?.tool_call?.arguments?.content).toBe("const url = 'http://localhost:3001';");
   });
 
+  it('strips hallucinated foreign-word garbage between closing braces', () => {
+    // Real-world failure: gemma3 emitted a Turkish word `işlemler` between
+    // `}` and `},` inside an otherwise-valid JSON tool_call body.
+    const input = [
+      '{',
+      '  "thought": "reinstall and retry",',
+      '  "tool_call": {',
+      '    "name": "execute_shell",',
+      '    "arguments": {',
+      '      "command": "npm start"',
+      '    } işlemler',
+      '  },',
+      '  "message": "Starting the application.",',
+      '  "satisfied": false',
+      '}',
+    ].join('\n');
+    const result = parseJsonResponse(input);
+    expect(result).not.toBeNull();
+    expect(result?.tool_call?.name).toBe('execute_shell');
+    expect(result?.tool_call?.arguments?.command).toBe('npm start');
+    expect(result?.message).toBe('Starting the application.');
+  });
+
+  it('does not strip legitimate value tokens that follow a closing brace via comma', () => {
+    // Guard: garbage stripper must leave `}, "key": "value"` alone.
+    const input = '{"a": {"x": 1}, "b": 2}';
+    const result = parseJsonResponse(input);
+    expect(result).toBeNull(); // no known schema keys present
+  });
+
   it('extracts the first JSON object when multiple bare objects are concatenated', () => {
     const input =
       '{"thought": "first", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "satisfied": false}\n' +
