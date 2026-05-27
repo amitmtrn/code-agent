@@ -57,11 +57,15 @@ program
       process.exit(1);
     }
 
+    // Ollama is a local, free provider — no API cost or rate-limit reason to
+    // cap turns. Replicate is metered, so keep the configured cap there.
+    const turnCap = options.provider === 'ollama' ? Infinity : config.MAX_THINKING_LOOPS;
+
     const agent = new Agent(
       provider,
       options.model,
       options.deepThinking,
-      config.MAX_THINKING_LOOPS,
+      turnCap,
       options.plan,
     );
 

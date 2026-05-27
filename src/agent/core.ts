@@ -455,7 +455,8 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
           }
         } else if (this.deepThinking && thinkingCount < this.maxThinkingLoops * 2) {
           // Trigger reflection
-          emitInfo(`(Self-Evaluating ${thinkingCount}/${this.maxThinkingLoops * 2}...)`);
+          const cap = Number.isFinite(this.maxThinkingLoops) ? `${this.maxThinkingLoops * 2}` : '∞';
+          emitInfo(`(Self-Evaluating ${thinkingCount}/${cap}...)`);
           this.messages.push({
             role: 'user',
             content: 'CRITICAL SELF-EVALUATION: Are you 100% satisfied that you have fully answered the user request with EMPIRICAL EVIDENCE? You are not yet satisfied and have NOT called a tool in this turn. You MUST use a tool to investigate the project or provide a more complete answer. Hallucinating information without tool use is strictly forbidden.'
