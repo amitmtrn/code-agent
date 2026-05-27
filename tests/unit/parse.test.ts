@@ -175,6 +175,28 @@ describe('parseJsonResponse', () => {
     expect(result?.message).toBe('done');
   });
 
+  it('strips hallucinated foreign-word garbage between a string value and a closing brace', () => {
+    // Real-world failure: gemma3 emitted a Hindi word (`दह`) between a
+    // string-value close and the next `}`. Old code only stripped after
+    // `}`/`]`, so this fell through and JSON.parse choked.
+    const input = [
+      '{',
+      '  "tool_call": {',
+      '    "name": "execute_shell",',
+      '    "arguments": {',
+      '      "command": "node server.js" दह',
+      '    }',
+      '  },',
+      '  "satisfied": true,',
+      '  "message": "Server is running"',
+      '}',
+    ].join('\n');
+    const result = parseJsonResponse(input);
+    expect(result).not.toBeNull();
+    expect(result?.tool_call?.arguments?.command).toBe('node server.js');
+    expect(result?.satisfied).toBe(true);
+  });
+
   it('strips hallucinated foreign-word garbage between closing braces', () => {
     // Real-world failure: gemma3 emitted a Turkish word `işlemler` between
     // `}` and `},` inside an otherwise-valid JSON tool_call body.

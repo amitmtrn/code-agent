@@ -83,46 +83,50 @@ function repairInvalidEscapes(s: string): string {
 }
 
 /**
- * Strip non-JSON garbage tokens that appear *outside* string literals between
- * structural punctuation. Models occasionally hallucinate random words inside
- * the JSON skeleton — observed cases include Turkish/CJK fragments after a
- * closing brace, e.g.:
+ * Strip non-JSON garbage tokens that appear *outside* string literals
+ * immediately after a value-ending token. Models occasionally hallucinate
+ * random words inside the JSON skeleton — observed cases include:
  *
- *   "arguments": { "command": "npm start" } işlemler }
+ *   "arguments": { "command": "npm start" } işlemler }   ← after `}`
+ *   "command": "node server.js" दह }                     ← after `"`
  *
- * After a `}` or `]` token the next meaningful char must be `,`, `}`, `]`, or
- * end-of-input. Anything else (letters, identifiers, punctuation other than
- * separators) is garbage; we drop chars until the grammar lines up again.
- * Whitespace is preserved so error messages stay readable.
+ * After a value-ending token (`}`, `]`, or a string-closing `"`) the next
+ * meaningful char must be `,`, `}`, `]`, or (for an object key value end) `:`.
+ * Anything else (letters, identifiers, foreign-script words) is garbage; we
+ * drop chars until the grammar lines up again. Whitespace is preserved so
+ * error messages stay readable.
  */
 function stripGarbageBetweenValues(s: string): string {
   let out = '';
   let inString = false;
   let escape = false;
-  let lastWasClose = false; // last non-ws char outside a string was } or ]
+  let lastWasValueEnd = false; // last non-ws char outside a string ended a value
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (inString) {
       out += ch;
       if (escape) escape = false;
       else if (ch === '\\') escape = true;
-      else if (ch === '"') inString = false;
+      else if (ch === '"') {
+        inString = false;
+        lastWasValueEnd = true; // closing quote of a string value
+      }
       continue;
     }
     if (ch === '"') {
       inString = true;
       out += ch;
-      lastWasClose = false;
+      lastWasValueEnd = false;
       continue;
     }
-    // Outside string. If we're sitting right after a } or ] and the next
-    // non-whitespace char isn't , } ] (or another closer), it's garbage —
-    // skip it without emitting.
-    if (lastWasClose && /\S/.test(ch) && ch !== ',' && ch !== '}' && ch !== ']') {
+    // Outside string. If we're sitting right after a value-ending token and
+    // the next non-whitespace char isn't , : } ] (the only things legal at
+    // this position), it's garbage — drop it without emitting.
+    if (lastWasValueEnd && /\S/.test(ch) && ch !== ',' && ch !== '}' && ch !== ']' && ch !== ':') {
       continue;
     }
     if (/\S/.test(ch)) {
-      lastWasClose = (ch === '}' || ch === ']');
+      lastWasValueEnd = (ch === '}' || ch === ']');
     }
     out += ch;
   }

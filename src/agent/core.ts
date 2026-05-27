@@ -50,6 +50,12 @@ The user will review your plan and either approve it (you exit plan mode and exe
 
 export class Agent {
   private messages: Message[] = [];
+  // Plan-first mode: before the main tool-use loop, run a single read-only
+  // turn that asks the model to draft a 3-5 step plan. The plan stays as a
+  // system message in the conversation so subsequent turns reference it.
+  // Helps small models avoid the "wander and forget the goal" failure mode.
+  // Distinct from `planMode`, which is the interactive plan-then-approve UX.
+  private planFirst: boolean = false;
 
   constructor(
     private provider: Provider,
@@ -157,8 +163,113 @@ If the probe fails, read /tmp/server.log to see why the server died.`;
     this.messages.push({ role: 'system', content: finalPrompt });
   }
 
+  setPlanFirst(enabled: boolean): void {
+    this.planFirst = enabled;
+  }
+
   isInPlanMode(): boolean {
     return this.planMode;
+  }
+
+  /**
+   * Plan-first pre-turn. Asks the model to draft a brief plan with NO tool
+   * calls, then injects the plan as a system message so the main loop has it
+   * as durable context. Failures are non-fatal — if the model can't produce a
+   * usable plan we just continue without one (better than crashing the run).
+   */
+  private async planFirstPreTurn(userInput: string): Promise<void> {
+    const planPrompt = `Before you do ANYTHING else, write a brief implementation plan for the task below. Rules:
+- 3-5 numbered steps, each one short sentence describing a concrete action.
+- Do NOT call any tools yet. \`tool_call\` MUST be null in this turn.
+- Set \`satisfied\` to false.
+- Put the plan in \`message\` as plain text, with steps on separate lines.
+
+Task: ${userInput}`;
+    this.messages.push({ role: 'user', content: planPrompt });
+    try {
+      const response = await this.provider.chat({
+        model: this.model,
+        messages: this.messages,
+        tools: [], // hard-disable tools for the plan turn
+      });
+      const content = response.message?.content || '';
+      const parsed = parseJsonResponse(content);
+      const planText = (parsed?.message || '').trim();
+      this.messages.push({ role: 'assistant', content });
+      if (planText) {
+        this.messages.push({
+          role: 'system',
+          content: `PLAN (drafted by you at start of task — keep this in mind through every step below):\n${planText}`,
+        });
+        emitInfo(`Plan drafted (${planText.split(/\r?\n/).filter(Boolean).length} steps).`);
+      } else {
+        emitInfo('Plan-first pre-turn produced no usable plan — continuing without it.');
+      }
+    } catch (e: any) {
+      emitInfo(`Plan-first pre-turn failed: ${e?.message ?? String(e)}. Continuing without a plan.`);
+    }
+  }
+
+  /**
+   * Compact the conversation when it gets too long. Small models drown in
+   * 40+ turn histories; everything before the cutoff gets folded into a
+   * single system "[earlier turns summarized]" message. We keep the system
+   * prompt (index 0), any earlier injected PLAN system messages, and the
+   * last KEEP_RECENT turns intact.
+   */
+  private maybeCompactHistory(): void {
+    const COMPACT_THRESHOLD = 30;
+    const KEEP_RECENT = 16;
+    if (this.messages.length <= COMPACT_THRESHOLD) return;
+
+    // Anchor messages we never drop: system prompt at index 0 and any
+    // subsequent system-role messages (e.g. PLAN injection).
+    const anchors: Message[] = [];
+    let firstNonAnchorIdx = 0;
+    for (let i = 0; i < this.messages.length; i++) {
+      if (this.messages[i].role === 'system') {
+        anchors.push(this.messages[i]);
+        firstNonAnchorIdx = i + 1;
+      } else {
+        break;
+      }
+    }
+
+    const recent = this.messages.slice(-KEEP_RECENT);
+    const middle = this.messages.slice(firstNonAnchorIdx, this.messages.length - KEEP_RECENT);
+    if (middle.length === 0) return;
+
+    // Summarize middle into a compact tool-use trace. We don't call the model
+    // for this — small/local models often hallucinate when asked to summarize
+    // a long history. A deterministic outline keeps token budget low and the
+    // signal accurate.
+    const lines: string[] = [];
+    for (const m of middle) {
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+        for (const tc of m.tool_calls) {
+          const args = tc.function.arguments.length > 120
+            ? tc.function.arguments.slice(0, 120) + '…'
+            : tc.function.arguments;
+          lines.push(`- assistant called ${tc.function.name}(${args})`);
+        }
+      } else if (m.role === 'tool') {
+        const result = (m.content || '').replace(/\s+/g, ' ').trim();
+        const trimmed = result.length > 160 ? result.slice(0, 160) + '…' : result;
+        lines.push(`  → tool result: ${trimmed}`);
+      } else if (m.role === 'user') {
+        const content = (m.content || '').replace(/\s+/g, ' ').trim();
+        if (!content) continue;
+        const trimmed = content.length > 200 ? content.slice(0, 200) + '…' : content;
+        lines.push(`- user/system note: ${trimmed}`);
+      }
+    }
+    const summary: Message = {
+      role: 'system',
+      content: `[${middle.length} earlier turns compacted — only the trace below survives, full content was dropped to stay under the context budget]\n${lines.join('\n')}`,
+    };
+
+    this.messages = [...anchors, summary, ...recent];
+    emitInfo(`Compacted history: ${middle.length} turns → 1 summary message.`);
   }
 
   exitPlanMode(): void {
@@ -171,6 +282,9 @@ If the probe fails, read /tmp/server.log to see why the server died.`;
   }
 
   async chat(userInput: string): Promise<void> {
+    if (this.planFirst && !this.planMode) {
+      await this.planFirstPreTurn(userInput);
+    }
     this.messages.push({ role: 'user', content: userInput });
 
     let loop = true;
@@ -187,6 +301,7 @@ If the probe fails, read /tmp/server.log to see why the server died.`;
         emitError('Maximum turns reached. Ending loop.');
         break;
       }
+      this.maybeCompactHistory();
 
       if (lastToolActions.length > 0) {
         const summary = lastToolActions.map(a => `- Executed tool '${a.name}' with arguments: ${a.args}\n  Result: ${a.result.length > 200 ? a.result.substring(0, 200) + '...' : a.result}`).join('\n');
@@ -270,32 +385,44 @@ If the probe fails, read /tmp/server.log to see why the server died.`;
         }];
       }
 
-      // Repetition check for failed tool calls — only looks at the most
-      // recent invocations of the same tool. A whole-history scan misfires
-      // after state-changing retries (e.g. an earlier `node server` that
-      // failed because express was missing should NOT keep blocking the
-      // call AFTER a successful `npm install express` has run).
-      const RECENT_FAILURE_WINDOW = 3;
+      // Repetition check for failed tool calls. We only block when the agent
+      // is in a tight loop: the same (name, args) just failed AND nothing
+      // has succeeded since — i.e. the model is hammering the same broken
+      // call without making any progress. A successful tool result of ANY
+      // kind in between "resets" history because state has changed (e.g.
+      // an `npm install express` between two `node server.js` attempts
+      // genuinely fixes the prior failure — the second attempt deserves
+      // to run).
       let isRepetitiveFailure = false;
       if (toolCalls && toolCalls.length > 0) {
         for (const tc of toolCalls) {
           const toolName = tc.function.name;
           const toolArgs = tc.function.arguments;
 
-          const recentSameToolMsgs = this.messages
-            .map((m, idx) => ({ m, idx }))
-            .filter(({ m }) => m.role === 'tool' && m.name === toolName)
-            .slice(-RECENT_FAILURE_WINDOW);
-
-          const previouslyFailed = recentSameToolMsgs.some(({ m, idx }) => {
-            if (!m.content.toLowerCase().includes('error')) return false;
-            const assistantMsg = this.messages[idx - 1];
-            if (!(assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.tool_calls)) return false;
-            return assistantMsg.tool_calls.some(atc =>
+          // Find the most recent matching (name, args) failure, if any.
+          let lastMatchingFailureIdx = -1;
+          for (let i = this.messages.length - 1; i >= 0; i--) {
+            const m = this.messages[i];
+            if (m.role !== 'tool' || m.name !== toolName) continue;
+            if (!m.content.toLowerCase().includes('error')) continue;
+            const assistantMsg = this.messages[i - 1];
+            if (!(assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.tool_calls)) continue;
+            const argsMatch = assistantMsg.tool_calls.some(atc =>
               atc.function.name === toolName &&
               atc.function.arguments === toolArgs
             );
-          });
+            if (argsMatch) { lastMatchingFailureIdx = i; break; }
+          }
+
+          // No prior failure → not repetitive.
+          // Some tool succeeded AFTER the prior failure → state changed → allow retry.
+          let previouslyFailed = false;
+          if (lastMatchingFailureIdx !== -1) {
+            const successAfter = this.messages
+              .slice(lastMatchingFailureIdx + 1)
+              .some(m => m.role === 'tool' && !m.content.toLowerCase().includes('error'));
+            previouslyFailed = !successAfter;
+          }
 
           if (previouslyFailed) {
             emitError(`Repetitive failed tool call detected: ${toolName}`);

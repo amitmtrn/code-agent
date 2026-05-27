@@ -8,6 +8,9 @@ import { Agent } from './agent/core';
 import { registry } from './tools/registry';
 import { readFileTool, writeFileTool, listFilesTool, createDirectoryTool } from './tools/fs';
 import { shellTool } from './tools/shell';
+import { searchCodeTool } from './tools/search';
+import { runTestsTool } from './tools/run-tests';
+import { gitDiffTool } from './tools/git';
 import { setRuntime } from './runtime';
 import { emitError } from './output/emit';
 import inquirer from 'inquirer';
@@ -19,6 +22,9 @@ registry.register(writeFileTool);
 registry.register(listFilesTool);
 registry.register(createDirectoryTool);
 registry.register(shellTool);
+registry.register(searchCodeTool);
+registry.register(runTestsTool);
+registry.register(gitDiffTool);
 
 const program = new Command();
 
@@ -31,6 +37,7 @@ program
   .option('--host <host>', 'Ollama host URL')
   .option('-d, --deep-thinking', 'Enable deep thinking (self-reflection)', config.DEEP_THINKING)
   .option('--plan', 'Start in plan mode (read-only investigation + approval gate)', config.PLAN_MODE)
+  .option('--plan-first', 'Draft a brief plan as a no-tool pre-turn before the main agent loop. Helps small models avoid wandering off-task. No approval gate (unlike --plan).', false)
   .option('--exec', 'Run the prompt once and exit (no interactive loop). Reads prompt from stdin if no positional argument is given.', false)
   .option('--json', 'Emit NDJSON events to stdout (one JSON object per line) instead of pretty output. Suitable for embedding in other tools.', false)
   .option('--yes', 'Auto-approve shell-command confirmations (no TTY prompts). Required when running headless.', false)
@@ -68,6 +75,7 @@ program
       turnCap,
       options.plan,
     );
+    if (options.planFirst) agent.setPlanFirst(true);
 
     if (!options.json) {
       console.log(chalk.gray(`pwd: ${process.cwd()}`));
