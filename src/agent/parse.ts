@@ -27,6 +27,61 @@ export interface ParsedAgentResponse {
  *      to its matching `}`. Strings get the partial slice so the existing
  *      repair logic can still close an unterminated object.
  */
+/**
+ * Walk a candidate JSON string and fix two common model mistakes inside
+ * string literals: invalid backslash escapes (e.g. `\'`) and raw newlines.
+ * Outside strings the input is passed through unchanged. We do NOT try to
+ * "interpret" the escape — for an illegal `\x`, we simply drop the backslash
+ * so the literal character survives, matching the model's apparent intent.
+ */
+const VALID_ESCAPES = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u']);
+function repairInvalidEscapes(s: string): string {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    // Inside a string literal.
+    if (ch === '\\') {
+      const next = s[i + 1];
+      if (next !== undefined && VALID_ESCAPES.has(next)) {
+        out += ch + next;
+        i++;
+      } else if (next !== undefined) {
+        // Illegal escape — drop the backslash, keep the next char verbatim.
+        out += next;
+        i++;
+      } else {
+        // Trailing backslash with nothing after — drop it.
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '\n') {
+      out += '\\n';
+      continue;
+    }
+    if (ch === '\r') {
+      out += '\\r';
+      continue;
+    }
+    if (ch === '\t') {
+      out += '\\t';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 function extractFirstJsonCandidate(text: string): string | null {
   const t = text.trimStart();
   if (!t) return null;
@@ -93,19 +148,23 @@ export function parseJsonResponse(content: unknown): ParsedAgentResponse | null 
     try {
       parsed = JSON.parse(jsonStr);
     } catch (e) {
-      // Repair pass 1: escape raw newlines inside string literals.
+      // Repair pass 1: fix invalid escape sequences inside string literals.
+      // Some models (gemma3, llama variants) leak JS-style escapes like `\'`
+      // or stray `\<char>` into JSON content fields. JSON's grammar only
+      // accepts \" \\ \/ \b \f \n \r \t \uXXXX — anything else makes
+      // JSON.parse throw at the very first occurrence. We walk the string
+      // (tracking string-literal state) and drop the backslash from any
+      // illegal escape so the surviving character is kept verbatim.
+      // Also covers raw newlines inside strings (replace with \n).
       try {
-        const escapedStr = jsonStr.replace(/"([^"]*)"/g, (_match, p1) => {
-          return '"' + p1.replace(/\n/g, '\\n') + '"';
-        });
-        parsed = JSON.parse(escapedStr);
+        parsed = JSON.parse(repairInvalidEscapes(jsonStr));
       } catch (innerE) {
         // Repair pass 2: close an unterminated trailing object by appending `}`s.
         let repaired = jsonStr.trim();
         while (repaired.length > 0 && !repaired.endsWith('}')) {
           repaired += '}';
           try {
-            parsed = JSON.parse(repaired);
+            parsed = JSON.parse(repairInvalidEscapes(repaired));
             break;
           } catch (retryE) {
             if (repaired.length > jsonStr.length + 10) throw retryE;

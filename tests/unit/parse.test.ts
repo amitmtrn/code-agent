@@ -126,6 +126,39 @@ describe('parseJsonResponse', () => {
     expect(result?.satisfied).toBe(false);
   });
 
+  it("repairs JS-style invalid escapes like \\' inside a string field", () => {
+    // Models sometimes leak `\'` (a JS escape) into JSON content fields,
+    // which is illegal in JSON. Parser should recover by dropping the
+    // backslash so the apostrophe survives.
+    const input = '{"message": "Let\\\'s create a component", "satisfied": false}';
+    const result = parseJsonResponse(input);
+    expect(result?.message).toBe("Let's create a component");
+  });
+
+  it('parses a fenced block whose content contains \\\' invalid escapes', () => {
+    // The real-world failure: gemma3 emits valid fenced JSON, but the
+    // `content` field has Python/JS-style `\'` inside a code snippet.
+    const input = [
+      '```json',
+      '{',
+      '  "thought": "do the thing",',
+      '  "tool_call": {',
+      '    "name": "write_file",',
+      '    "arguments": {',
+      '      "path": "frontend/App.js",',
+      '      "content": "const url = \\\'http://localhost:3001\\\';"',
+      '    }',
+      '  },',
+      '  "satisfied": false',
+      '}',
+      '```',
+    ].join('\n');
+    const result = parseJsonResponse(input);
+    expect(result).not.toBeNull();
+    expect(result?.tool_call?.name).toBe('write_file');
+    expect(result?.tool_call?.arguments?.content).toBe("const url = 'http://localhost:3001';");
+  });
+
   it('extracts the first JSON object when multiple bare objects are concatenated', () => {
     const input =
       '{"thought": "first", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "satisfied": false}\n' +
