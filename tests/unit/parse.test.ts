@@ -106,4 +106,32 @@ describe('parseJsonResponse', () => {
     expect(() => parseJsonResponse('{ this is not json at all ::: ')).not.toThrow();
     expect(parseJsonResponse('{ this is not json at all ::: ')).toBeNull();
   });
+
+  it('extracts only the first JSON block when the model emits multiple ```json fences', () => {
+    const input = [
+      '```json',
+      '{"thought": "step 1", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "satisfied": false}',
+      '```',
+      '```json',
+      '{"thought": "step 2", "tool_call": {"name": "read_file", "arguments": {"path": "a"}}, "satisfied": false}',
+      '```',
+      '```json',
+      '{"thought": "step 3", "satisfied": true, "message": "done"}',
+      '```',
+    ].join('\n');
+    const result = parseJsonResponse(input);
+    expect(result).not.toBeNull();
+    expect(result?.thought).toBe('step 1');
+    expect(result?.tool_call?.name).toBe('list_files');
+    expect(result?.satisfied).toBe(false);
+  });
+
+  it('extracts the first JSON object when multiple bare objects are concatenated', () => {
+    const input =
+      '{"thought": "first", "tool_call": {"name": "list_files", "arguments": {"path": "."}}, "satisfied": false}\n' +
+      '{"thought": "second", "satisfied": true}';
+    const result = parseJsonResponse(input);
+    expect(result?.thought).toBe('first');
+    expect(result?.tool_call?.name).toBe('list_files');
+  });
 });
