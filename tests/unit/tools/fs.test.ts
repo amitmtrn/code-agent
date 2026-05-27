@@ -25,7 +25,14 @@ describe('fs tools', () => {
 
     it('returns an error string (does not throw) for a missing file', async () => {
       const result = await readFileTool.execute({ path: path.join(dir, 'nope.txt') });
-      expect(result).toMatch(/^Error reading file:/);
+      expect(result).toMatch(/^Error reading /);
+      expect(result).toContain('does not exist');
+    });
+
+    it('includes the absolute path and cwd in ENOENT errors so small models can self-correct', async () => {
+      const result = await readFileTool.execute({ path: 'definitely-not-here.txt' });
+      expect(result).toContain('Looked at:');
+      expect(result).toContain(process.cwd());
     });
   });
 
@@ -80,7 +87,8 @@ describe('fs tools', () => {
 
     it('returns an error string for a missing directory', async () => {
       const result = await listFilesTool.execute({ path: path.join(dir, 'does-not-exist') });
-      expect(result).toMatch(/^Error listing files:/);
+      expect(result).toMatch(/^Error listing /);
+      expect(result).toContain('does not exist');
     });
   });
 

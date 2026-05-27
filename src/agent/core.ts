@@ -135,7 +135,18 @@ ${toolList}`;
 
 # Working Directory
 pwd: ${process.cwd()}
-All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file' with path 'README.md') resolve against this directory. This is the project the user is asking about — investigate THIS directory, not any other.`;
+All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file' with path 'README.md') resolve against this directory. This is the project the user is asking about — investigate THIS directory, not any other.
+
+# Working Directory Persistence — IMPORTANT
+Each \`execute_shell\` call runs in a fresh subshell that starts at the project root above. \`cd subdir\` inside one call does NOT carry over to the next call. Consequences:
+- If you need to work inside a subdirectory (e.g. \`backend\`), chain the commands together with \`&&\` in the SAME execute_shell call: \`cd backend && npm install && node index.js\`. A subsequent call like \`npm install\` after a prior \`cd backend\` will run in the project root, not in backend.
+- read_file / write_file / list_files / create_directory resolve relative paths against the project root above — not against any prior \`cd\`. If you Glob'd \`backend/\` and saw \`index.js\`, the read path is \`backend/index.js\`, not \`index.js\`.
+- When a path lookup fails with ENOENT, the error tells you the absolute path that was tried — re-read it carefully, you almost certainly forgot a parent directory.
+
+# Verifying backgrounded servers
+A backgrounded command (\`nohup ... &\`) returns immediately with empty stdout regardless of whether the server actually came up — for example, \`nohup npm start &\` silently does nothing if there's no \`start\` script in package.json. To know if it really started, chain a quick probe in the SAME call:
+  \`nohup npm start > /tmp/server.log 2>&1 & sleep 1 && curl --max-time 5 http://localhost:PORT/ && echo OK || (echo FAILED && tail -50 /tmp/server.log)\`
+If the probe fails, read /tmp/server.log to see why the server died.`;
 
     const finalPrompt = systemPrompt + (this.planMode ? PLAN_MODE_ADDENDUM : '') + pwdContext + toolInstructions;
     this.messages.push({ role: 'system', content: finalPrompt });

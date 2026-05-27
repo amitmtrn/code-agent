@@ -78,7 +78,11 @@ function describeError(e: any, command: string, timeoutMs: number): string {
 export const shellTool: Tool = {
   definition: {
     name: 'execute_shell',
-    description: 'Execute a shell command. The command MUST terminate on its own — do not start long-running servers in the foreground (use `nohup <cmd> &` if a server is required). Most commands are killed after 60 seconds; installs/builds (npm install, docker build, etc.) get 10 minutes.',
+    description: `Execute a shell command. Each call runs in a fresh subshell starting at the project root — \`cd\` inside one command does NOT carry over to the next call. If you need to run a command inside a subdirectory, chain it in the SAME call: \`cd subdir && <cmd>\`, or use absolute paths.
+
+Other rules:
+- Commands MUST terminate on their own. Foreground servers (npm start, npm run dev, vite, next, flask run, etc.) are refused — start them in the background with \`nohup <cmd> > /tmp/log 2>&1 &\` and then immediately verify with a short \`sleep 1 && curl --max-time 5 <url>\` chained in the SAME call. A bare backgrounded start tells you nothing — the server may have crashed instantly (e.g. missing \`start\` script) and you'd never know.
+- Default timeout is 60s. Installs/builds (npm install, docker build, cargo build, etc.) get 10 minutes. \`curl\` and \`wget\` without an explicit timeout flag are given \`--max-time 10\` automatically.`,
     parameters: {
       type: 'object',
       properties: {
