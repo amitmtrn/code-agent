@@ -254,26 +254,31 @@ All relative paths in tool calls (e.g. 'list_files' with path '.', or 'read_file
         }];
       }
 
-      // Repetition check for failed tool calls
+      // Repetition check for failed tool calls — only looks at the most
+      // recent invocations of the same tool. A whole-history scan misfires
+      // after state-changing retries (e.g. an earlier `node server` that
+      // failed because express was missing should NOT keep blocking the
+      // call AFTER a successful `npm install express` has run).
+      const RECENT_FAILURE_WINDOW = 3;
       let isRepetitiveFailure = false;
       if (toolCalls && toolCalls.length > 0) {
         for (const tc of toolCalls) {
           const toolName = tc.function.name;
           const toolArgs = tc.function.arguments;
-          
-          // Check if this EXACT tool call (name + args) failed previously in this conversation
-          const previouslyFailed = this.messages.some((m, idx) => {
-            if (m.role === 'tool' && m.name === toolName && m.content.toLowerCase().includes('error')) {
-              // Found a tool error for this tool name. Now check if the arguments match the assistant call before it.
-              const assistantMsg = this.messages[idx - 1];
-              if (assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.tool_calls) {
-                return assistantMsg.tool_calls.some(atc => 
-                  atc.function.name === toolName && 
-                  atc.function.arguments === toolArgs
-                );
-              }
-            }
-            return false;
+
+          const recentSameToolMsgs = this.messages
+            .map((m, idx) => ({ m, idx }))
+            .filter(({ m }) => m.role === 'tool' && m.name === toolName)
+            .slice(-RECENT_FAILURE_WINDOW);
+
+          const previouslyFailed = recentSameToolMsgs.some(({ m, idx }) => {
+            if (!m.content.toLowerCase().includes('error')) return false;
+            const assistantMsg = this.messages[idx - 1];
+            if (!(assistantMsg && assistantMsg.role === 'assistant' && assistantMsg.tool_calls)) return false;
+            return assistantMsg.tool_calls.some(atc =>
+              atc.function.name === toolName &&
+              atc.function.arguments === toolArgs
+            );
           });
 
           if (previouslyFailed) {

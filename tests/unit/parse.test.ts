@@ -159,6 +159,22 @@ describe('parseJsonResponse', () => {
     expect(result?.tool_call?.arguments?.content).toBe("const url = 'http://localhost:3001';");
   });
 
+  it('recovers when a fenced block has prefix garbage before the opening brace', () => {
+    // Real-world failure: gemma3 emitted `` ```json\n Disseml\n{...}\n``` ``
+    // The fence opener was clean, but a stray word landed between the
+    // fence and the actual JSON object. Old code returned the trimmed
+    // body verbatim and JSON.parse choked on `Disseml`.
+    const input = [
+      '```json',
+      ' Disseml',
+      '{"satisfied": true, "message": "done"}',
+      '```',
+    ].join('\n');
+    const result = parseJsonResponse(input);
+    expect(result?.satisfied).toBe(true);
+    expect(result?.message).toBe('done');
+  });
+
   it('strips hallucinated foreign-word garbage between closing braces', () => {
     // Real-world failure: gemma3 emitted a Turkish word `işlemler` between
     // `}` and `},` inside an otherwise-valid JSON tool_call body.

@@ -129,26 +129,22 @@ function stripGarbageBetweenValues(s: string): string {
   return out;
 }
 
-function extractFirstJsonCandidate(text: string): string | null {
-  const t = text.trimStart();
-  if (!t) return null;
-
-  // Fenced block (```json or ``` ).
-  if (t.startsWith('```')) {
-    const fenced = t.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)\n```/);
-    if (fenced) return fenced[1].trim();
-    // Unterminated opening fence — strip it and continue with the remainder.
-    return t.replace(/^```[a-zA-Z]*\s*\n?/, '').trim() || null;
-  }
-
-  const start = t.indexOf('{');
+/**
+ * Walk a string to find the first balanced `{...}` object, ignoring any
+ * prefix (garbage, prose, leading words). Tracks string-literal state so
+ * braces inside JSON string values don't trip the depth counter. Returns
+ * the slice from the opening `{` to the matching `}`. If the object never
+ * closes, returns the slice from `{` onward — the repair passes downstream
+ * will try to close it.
+ */
+function findFirstBalancedObject(s: string): string | null {
+  const start = s.indexOf('{');
   if (start === -1) return null;
-
   let depth = 0;
   let inString = false;
   let escape = false;
-  for (let i = start; i < t.length; i++) {
-    const ch = t[i];
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
     if (escape) { escape = false; continue; }
     if (inString) {
       if (ch === '\\') escape = true;
@@ -159,11 +155,29 @@ function extractFirstJsonCandidate(text: string): string | null {
     if (ch === '{') depth++;
     else if (ch === '}') {
       depth--;
-      if (depth === 0) return t.slice(start, i + 1);
+      if (depth === 0) return s.slice(start, i + 1);
     }
   }
-  // Unbalanced — return the rest so the repair branch can try to close it.
-  return t.slice(start);
+  return s.slice(start);
+}
+
+function extractFirstJsonCandidate(text: string): string | null {
+  const t = text.trimStart();
+  if (!t) return null;
+
+  // Fenced block (```json or ``` ). Pull the body, then brace-walk the body
+  // so any leading prose between the fence opener and the first `{` (e.g.
+  // a stray word like "Disseml") gets stripped instead of poisoning
+  // JSON.parse downstream.
+  if (t.startsWith('```')) {
+    const fenced = t.match(/^```[a-zA-Z]*\s*\n([\s\S]*?)\n```/);
+    const body = fenced
+      ? fenced[1]
+      : t.replace(/^```[a-zA-Z]*\s*\n?/, '');
+    return findFirstBalancedObject(body);
+  }
+
+  return findFirstBalancedObject(t);
 }
 
 export function parseJsonResponse(content: unknown): ParsedAgentResponse | null {
