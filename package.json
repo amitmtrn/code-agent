@@ -1,6 +1,6 @@
 {
   "name": "codagent",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "A clone of Claude Code using Replicate and Ollama models",
   "main": "dist/index.js",
   "bin": {
